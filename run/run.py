@@ -19,6 +19,7 @@ from train.train import train, validate
 from torchsummary import summary
 import random
 
+
 def setup_seed(seed):
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
@@ -31,8 +32,8 @@ if __name__ == '__main__':
     setup_seed(100)
     audio_model = CAVMAEFT(label_dim=cavmaeconfig['n_class'],
                            modality_specific_depth=cavmaeconfig['modality_specific_depth'])
-    for k, v in audio_model.state_dict().items():
-        print(k)
+    # for k, v in audio_model.state_dict().items():
+    #     print(k)
     mdl_weight = torch.load(cavmaeconfig['pretrain_path'])
     if not isinstance(audio_model, torch.nn.DataParallel):
         audio_model = torch.nn.DataParallel(audio_model)
@@ -42,7 +43,3 @@ if __name__ == '__main__':
     train_loader, val_dataloader = get_dataloader()
     summary(audio_model, input_size=[(1024, 128), (3, 224, 224)], device='cpu')
     train(audio_model, train_loader, val_dataloader, start_epoch=0)
-
-
-
-

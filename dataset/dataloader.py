@@ -221,7 +221,7 @@ def get_dataloader():
 
 if __name__ == '__main__':
     # h5generator('dataset.h5')
-    fbank_h5('test_fbank.h5')
+    # fbank_h5('test_fbank.h5')
     # frames_h5('test_frames.h5')
     # from torchvision.datasets import ImageFolder
     #
@@ -235,9 +235,9 @@ if __name__ == '__main__':
     # train_loader = data.DataLoader(dataset, batch_size=1, shuffle=True)
     # print(len(train_loader))
 
-    '''
-    train = NSDataset('train_fbank.h5', 'train_frames.h5')
-    ns_dataloader = DataLoader(dataset=train, batch_size=dataconfig['batch_size'], shuffle=dataconfig['shuffle'],
+
+    val = NSDataset('val_fbank.h5', 'val_frames.h5')
+    ns_dataloader = DataLoader(dataset=val, batch_size=dataconfig['batch_size'], shuffle=dataconfig['shuffle'],
                                num_workers=dataconfig['num_workers'])
     loop = tqdm(ns_dataloader)
     index = 1
@@ -255,4 +255,4 @@ if __name__ == '__main__':
         print(y)
         print(id)
         index -= 1
-    '''
+

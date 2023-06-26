@@ -3,7 +3,7 @@ dataconfig = {
     'audio_path': 'D:/Datasets/NextSpeaker/train_val/',
     'video_path': 'D:/Datasets/NextSpeaker/train_val/sample_frames/',
     'meta_path': 'D:/Datasets/NextSpeaker/next_speaker_train.csv',
-    'batch_size': 4,
+    'batch_size': 8,
     'num_workers': 2,
     'shuffle': True
 }
@@ -21,7 +21,7 @@ audioconfig = {
 }
 
 cavmaeconfig = {
-    'n_class': 1,
+    'n_class': 4,
     'modality_specific_depth': 11,
     'ftmode': 'multimodal',
     'pretrain_path': '../weights/cav-mae-scale++.pth',
@@ -41,6 +41,6 @@ trainconfig = {
     'exp_dir': 'D:/github/ACMMM2023/logs/',
     'freeze_base': True,
     'save_model': True,
-    'savename': 'cavmae-ns'
+    'savename': 'cavmae-ns-alltrain'
 
 }

@@ -536,11 +536,11 @@ class CAVMAEFT(nn.Module):
         self.norm_v = norm_layer(embed_dim)
         self.norm = norm_layer(embed_dim)
 
-        self.mlp_head1 = nn.Sequential(nn.LayerNorm(embed_dim), nn.Linear(embed_dim, label_dim))
-        self.mlp_head2 = nn.Sequential(nn.LayerNorm(embed_dim), nn.Linear(embed_dim, label_dim))
-        self.mlp_head3 = nn.Sequential(nn.LayerNorm(embed_dim), nn.Linear(embed_dim, label_dim))
-        self.mlp_head4 = nn.Sequential(nn.LayerNorm(embed_dim), nn.Linear(embed_dim, label_dim))
-
+        # self.mlp_head1 = nn.Sequential(nn.LayerNorm(embed_dim), nn.Linear(embed_dim, label_dim))
+        # self.mlp_head2 = nn.Sequential(nn.LayerNorm(embed_dim), nn.Linear(embed_dim, label_dim))
+        # self.mlp_head3 = nn.Sequential(nn.LayerNorm(embed_dim), nn.Linear(embed_dim, label_dim))
+        # self.mlp_head4 = nn.Sequential(nn.LayerNorm(embed_dim), nn.Linear(embed_dim, label_dim))
+        self.mlp_head = nn.Sequential(nn.LayerNorm(embed_dim), nn.Linear(embed_dim, label_dim))
         self.initialize_weights()
 
         print('Audio Positional Embedding Shape:', self.pos_embed_a.shape)
@@ -608,8 +608,9 @@ class CAVMAEFT(nn.Module):
             x = self.norm(x)
 
             x = x.mean(dim=1)
-            y1, y2, y3, y4 = self.mlp_head1(x), self.mlp_head2(x), self.mlp_head3(x), self.mlp_head4(x)
-            return y1, y2, y3, y4
+            x = self.mlp_head(x)
+            # y1, y2, y3, y4 = self.mlp_head1(x), self.mlp_head2(x), self.mlp_head3(x), self.mlp_head4(x)
+            return x
 
         # finetune with only audio (and inference with only audio when the model is finetuned with only audio)
         elif mode == 'audioonly':

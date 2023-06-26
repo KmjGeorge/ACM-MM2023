@@ -49,10 +49,16 @@ def train(audio_model, train_loader, val_loader, start_epoch):
     audio_model = audio_model.to(device)
 
     # possible mlp layer name list, mlp layers are newly initialized layers in the finetuning stage (i.e., not pretrained) and should use a larger lr during finetuning
-    mlp_list = ['mlp_head1.0.weight', 'mlp_head1.0.bias', 'mlp_head1.1.weight', 'mlp_head1.1.bias',
+    # mlp_list = ['mlp_head1.0.weight', 'mlp_head1.0.bias', 'mlp_head1.1.weight', 'mlp_head1.1.bias',
+    #             'mlp_head2.0.weight', 'mlp_head2.0.bias', 'mlp_head2.1.weight', 'mlp_head2.1.bias',
+    #             'mlp_head3.0.weight', 'mlp_head3.0.bias', 'mlp_head3.1.weight', 'mlp_head3.1.bias',
+    #             'mlp_head4.0.weight', 'mlp_head4.0.bias', 'mlp_head4.1.weight', 'mlp_head4.1.bias',
+    #             'mlp_head_a.0.weight', 'mlp_head_a.0.bias', 'mlp_head_a.1.weight', 'mlp_head_a.1.bias',
+    #             'mlp_head_v.0.weight', 'mlp_head_v.0.bias', 'mlp_head_v.1.weight', 'mlp_head_v.1.bias',
+    #             'mlp_head_concat.0.weight', 'mlp_head_concat.0.bias', 'mlp_head_concat.1.weight',
+    #             'mlp_head_concat.1.bias']
+    mlp_list = ['mlp_head.0.weight', 'mlp_head.0.bias', 'mlp_head.1.weight', 'mlp_head.1.bias',
                 'mlp_head2.0.weight', 'mlp_head2.0.bias', 'mlp_head2.1.weight', 'mlp_head2.1.bias',
-                'mlp_head3.0.weight', 'mlp_head3.0.bias', 'mlp_head3.1.weight', 'mlp_head3.1.bias',
-                'mlp_head4.0.weight', 'mlp_head4.0.bias', 'mlp_head4.1.weight', 'mlp_head4.1.bias',
                 'mlp_head_a.0.weight', 'mlp_head_a.0.bias', 'mlp_head_a.1.weight', 'mlp_head_a.1.bias',
                 'mlp_head_v.0.weight', 'mlp_head_v.0.bias', 'mlp_head_v.1.weight', 'mlp_head_v.1.bias',
                 'mlp_head_concat.0.weight', 'mlp_head_concat.0.bias', 'mlp_head_concat.1.weight',
@@ -106,7 +112,7 @@ def train(audio_model, train_loader, val_loader, start_epoch):
     audio_model.train()
     while epoch < trainconfig['n_epochs'] + 1:
         audio_model.train()
-        loop = tqdm(train_loader)
+
         TP = [0, 0, 0, 0]
         FN = [0, 0, 0, 0]
         FP = [0, 0, 0, 0]
@@ -115,6 +121,8 @@ def train(audio_model, train_loader, val_loader, start_epoch):
         Total_avg_loss = 0.
         batch_sum_loss = 0.
         iter = 0
+
+        loop = tqdm(train_loader)
         for a_input, v, labels, _ in loop:
             iter += 1
             # 随机从10帧中采样1帧
@@ -122,44 +130,31 @@ def train(audio_model, train_loader, val_loader, start_epoch):
             v_input = v[:, :, index, :, :]
             v_input = v_input.float()
             a_input, v_input = a_input.to(device, non_blocking=True), v_input.to(device, non_blocking=True)
-
+            labels = labels.float().to(device)
             # 计算loss和uar
             with autocast():
-                audio_output = audio_model(a_input, v_input, cavmaeconfig['ftmode'])
-                # label含有4个，分别取出计算每个说话人的BCE
-                label_swap = torch.transpose(labels, 0, 1).float().to(device)
-                loss = torch.zeros(size=(1,)).to(device)
+                audio_output = audio_model(a_input, v_input, cavmaeconfig['ftmode']).to(device)  # (batch, 4)
+                loss = loss_fn(audio_output, labels)
 
-                UAR = 0
-                mAP = 0
-                for i, (logit, y_true) in enumerate(zip(audio_output, label_swap)):  # 对每个说话人
-                    logit.squeeze_().to(device)
-                    y_pred = [(lambda x: 1.0 if x > 0.5 else 0.0)(batch_item) for batch_item in
-                              nn.functional.sigmoid(logit)]
-                    # print('logit:', logit, 'y_pred:', y_pred, 'y_true:', y_true)
-                    for j in range(len(y_true)):
-                        if (y_pred[j] == 1) and (y_true[j] == 1):
-                            TP[i] += 1
-                        elif (y_pred[j] == 0) and (y_true[j] == 0):
-                            FN[i] += 1
-                        elif (y_pred[j] == 1) and (y_true[j] == 0):
-                            FP[i] += 1
-
-                    if (TP[i] + FN[i]) != 0:
-                        Recall[i] = TP[i] / (TP[i] + FN[i])
-                    else:
-                        Recall[i] = 0
-                    if (TP[i] + FP[i]) != 0:
-                        AP[i] = TP[i] / (TP[i] + FP[i])
-                    else:
-                        AP[i] = 0
-                    for r in Recall:
-                        UAR += r
-                    for ap in AP:
-                        mAP += ap
-                    UAR /= 4.0
-                    mAP /= 4.0
-                    loss += loss_fn(logit, y_true)
+            for i, (logit, y_true) in enumerate(zip(torch.sigmoid(audio_output).T, labels.T)):  # (4, batch)
+                y_pred = torch.round(logit)  # 超过0.5为1 否则为0
+                for j in range(len(y_true)):
+                    if (y_pred[j].item() == 1.) and (y_true[j].item() == 1.):
+                        TP[i] += 1
+                    elif (y_pred[j].item() == 0.) and (y_true[j].item() == 0.):
+                        FN[i] += 1
+                    elif (y_pred[j].item() == 1.) and (y_true[j].item() == 0.):
+                        FP[i] += 1
+                if TP[i] + FN[i] != 0:
+                    Recall[i] = TP[i] / (TP[i] + FN[i])
+                else:
+                    Recall[i] = 0
+                if TP[i] + FP[i] != 0:
+                    AP[i] = TP[i] / (TP[i] + FP[i])
+                else:
+                    AP[i] = 0
+            mAP = sum(AP) / 4
+            UAR = sum(Recall) / 4
             batch_sum_loss += loss.item()
             Total_avg_loss = batch_sum_loss / iter
             optimizer.zero_grad()
@@ -167,14 +162,14 @@ def train(audio_model, train_loader, val_loader, start_epoch):
             scaler.step(optimizer)
             scaler.update()
             loop.set_description('Epoch{}'.format(epoch))
-            loop.set_postfix(Recall=Recall, mAP=mAP, UAR=UAR, loss=Total_avg_loss,
+            loop.set_postfix(Recall=[round(re, 3) for re in Recall], AP=[round(ap, 3) for ap in AP], mAP=mAP, UAR=UAR, loss=Total_avg_loss,
                              lr=optimizer.param_groups[0]['lr'])
         # 每轮验证一次
         val_UAR, val_mAP, val_loss = validate(audio_model, val_loader)
 
         if trainconfig['save_model'] == True:
-            info.uar_list.append(UAR)
-            info.map_list.append(mAP)
+            info.uar_list.append(sum(AP) / 4)
+            info.map_list.append(sum(Recall) / 4)
             info.loss_list.append(Total_avg_loss)
             info.val_uar_list.append(val_UAR)
             info.val_map_list.append(val_mAP)
@@ -208,54 +203,45 @@ def validate(audio_model, val_loader):
         for a_input, v, labels, _ in loop:
             iter += 1
             a_input = a_input.to(device)
-            audio_output = torch.zeros(size=(4, a_input.size(0))).to(device)
+            labels = labels.float().to(device)
+            audio_output = torch.zeros(size=(a_input.size(0), 4)).to(device)
             # 10帧输入的输出取平均
             for index in range(10):
                 v_input = v[:, :, index, :, :]
                 v_input = v_input.float().to(device)
                 with autocast():
-                    s0, s1, s2, s3 = audio_model(a_input, v_input, cavmaeconfig['ftmode'])  # 4个结果，每个(batchsize, 1)
-                    audio_output[0] += s0.squeeze()
-                    audio_output[1] += s1.squeeze()
-                    audio_output[2] += s2.squeeze()
-                    audio_output[3] += s3.squeeze()
+                    audio_output += audio_model(a_input, v_input, cavmaeconfig['ftmode'])
             audio_output /= 10
-            label_swap = torch.transpose(labels, 0, 1).float().to(device)
-            loss = torch.zeros(size=(1,)).to(device)
 
-            UAR = 0
-            mAP = 0
-            for i, (logit, y_true) in enumerate(zip(audio_output, label_swap)):  # 对每个说话人
-                y_pred = [(lambda x: 1.0 if x > 0.5 else 0.0)(batch_item) for batch_item in
-                          nn.functional.sigmoid(logit)]
-                # print('logit:', logit, 'y_pred:', y_pred, 'y_true:', y_true)
+            # 计算loss和uar
+            with autocast():
+                audio_output = audio_model(a_input, v_input, cavmaeconfig['ftmode']).to(device)
+                loss = loss_fn(audio_output, labels)
+
+            for i, (logit, y_true) in enumerate(zip(torch.sigmoid(audio_output).T, labels.T)):
+                y_pred = torch.round(logit)  # 超过0.5为1 否则为0
                 for j in range(len(y_true)):
-                    if (y_pred[j] == 1) and (y_true[j] == 1):
+                    if (y_pred[j].item() == 1.) and (y_true[j].item() == 1.):
                         TP[i] += 1
-                    elif (y_pred[j] == 0) and (y_true[j] == 0):
+                    elif (y_pred[j].item() == 0.) and (y_true[j].item() == 0.):
                         FN[i] += 1
-                    elif (y_pred[j] == 1) and (y_true[j] == 0):
+                    elif (y_pred[j].item() == 1.) and (y_true[j].item() == 0.):
                         FP[i] += 1
-
-                if (TP[i] + FN[i]) != 0:
+                if TP[i] + FN[i] != 0:
                     Recall[i] = TP[i] / (TP[i] + FN[i])
                 else:
                     Recall[i] = 0
-                if (TP[i] + FP[i]) != 0:
+                if TP[i] + FP[i] != 0:
                     AP[i] = TP[i] / (TP[i] + FP[i])
                 else:
                     AP[i] = 0
-                for r in Recall:
-                    UAR += r
-                for ap in AP:
-                    mAP += ap
-                UAR /= 4.0
-                mAP /= 4.0
-                loss += loss_fn(logit, y_true)
+            mAP = sum(AP) / 4
+            UAR = sum(Recall) / 4
             batch_sum_loss += loss.item()
-            Total_Loss_avg = batch_sum_loss / iter
+            Total_avg_loss = batch_sum_loss / iter
             loop.set_description('Validation')
-            loop.set_postfix(Recall=Recall, UAR=UAR, mAP=mAP, loss=Total_Loss_avg)
+            loop.set_postfix(Recall=[round(re, 3) for re in Recall], AP=[round(ap, 3) for ap in AP], mAP=mAP, UAR=UAR,
+                             loss=Total_avg_loss)
 
     audio_model.train()
     return UAR, mAP, Total_Loss_avg
