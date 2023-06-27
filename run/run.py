@@ -15,7 +15,7 @@ import numpy as np
 import warnings
 import json
 from sklearn import metrics
-from train.train import train, validate
+from train.train import train
 from torchsummary import summary
 import random
 

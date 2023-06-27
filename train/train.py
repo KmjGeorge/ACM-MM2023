@@ -6,7 +6,7 @@ import numpy as np
 import pickle
 from torch.cuda.amp import autocast, GradScaler
 from scipy import stats
-from sklearn import metrics
+from sklearn.metrics import recall_score, average_precision_score
 from configs.nsconfig import dataconfig, audioconfig, trainconfig, cavmaeconfig
 from tqdm import tqdm
 import pandas as pd
@@ -21,6 +21,7 @@ class TrainingInfo:
         self.val_map_list = []
         self.val_uar_list = []
         self.lr_list = []
+        self.lr_head_list = []
 
 
 def save(info, model, savename, epoch, start_epoch):
@@ -30,7 +31,8 @@ def save(info, model, savename, epoch, start_epoch):
                          'val_loss': info.val_loss_list,
                          'val_map': info.val_map_list,
                          'val_uar': info.val_uar_list,
-                         'lr': info.lr_list
+                         'lr': info.lr_list,
+                         'lr_head': info.lr_head_list
                          })
     logs.to_csv('../logs/{}_logs.csv'.format(savename), index=True)
     torch.save(model.state_dict(),
@@ -111,86 +113,104 @@ def train(audio_model, train_loader, val_loader, start_epoch):
     print("start training...")
     audio_model.train()
     while epoch < trainconfig['n_epochs'] + 1:
-        audio_model.train()
-
-        TP = [0, 0, 0, 0]
-        FN = [0, 0, 0, 0]
-        FP = [0, 0, 0, 0]
-        Recall = [0., 0., 0., 0.]
-        AP = [0., 0., 0., 0.]
-        Total_avg_loss = 0.
-        batch_sum_loss = 0.
-        iter = 0
-
-        loop = tqdm(train_loader)
-        for a_input, v, labels, _ in loop:
-            iter += 1
-            # 随机从10帧中采样1帧
-            index = np.random.randint(0, 10)
-            v_input = v[:, :, index, :, :]
-            v_input = v_input.float()
-            a_input, v_input = a_input.to(device, non_blocking=True), v_input.to(device, non_blocking=True)
-            labels = labels.float().to(device)
-            # 计算loss和uar
-            with autocast():
-                audio_output = audio_model(a_input, v_input, cavmaeconfig['ftmode']).to(device)  # (batch, 4)
-                loss = loss_fn(audio_output, labels)
-
-            for i, (logit, y_true) in enumerate(zip(torch.sigmoid(audio_output).T, labels.T)):  # (4, batch)
-                y_pred = torch.round(logit)  # 超过0.5为1 否则为0
-                for j in range(len(y_true)):
-                    if (y_pred[j].item() == 1.) and (y_true[j].item() == 1.):
-                        TP[i] += 1
-                    elif (y_pred[j].item() == 0.) and (y_true[j].item() == 1.):
-                        FN[i] += 1
-                    elif (y_pred[j].item() == 1.) and (y_true[j].item() == 0.):
-                        FP[i] += 1
-                if TP[i] + FN[i] != 0:
-                    Recall[i] = TP[i] / (TP[i] + FN[i])
-                else:
-                    Recall[i] = 0
-                if TP[i] + FP[i] != 0:
-                    AP[i] = TP[i] / (TP[i] + FP[i])
-                else:
-                    AP[i] = 0
-            mAP = sum(AP) / 4
-            UAR = sum(Recall) / 4
-            batch_sum_loss += loss.item()
-            Total_avg_loss = batch_sum_loss / iter
-            optimizer.zero_grad()
-            scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
-            loop.set_description('Epoch{}'.format(epoch))
-            loop.set_postfix(Recall=[round(re, 3) for re in Recall], AP=[round(ap, 3) for ap in AP], mAP=mAP, UAR=UAR, loss=Total_avg_loss,
-                             lr=optimizer.param_groups[0]['lr'], lr_head=optimizer.param_groups[1]['lr'])
-        # 每轮验证一次
-        val_UAR, val_mAP, val_loss = validate(audio_model, val_loader)
+        train_uar, train_mAP, train_loss = train_per_epoch(audio_model, train_loader, device, loss_fn, optimizer,
+                                                           scaler, epoch)
+        val_UAR, val_mAP, val_loss = validate_per_epoch(audio_model, val_loader)
 
         if trainconfig['save_model'] == True:
-            info.uar_list.append(sum(AP) / 4)
-            info.map_list.append(sum(Recall) / 4)
-            info.loss_list.append(Total_avg_loss)
+            info.uar_list.append(train_uar)
+            info.map_list.append(train_mAP)
+            info.loss_list.append(train_loss)
             info.val_uar_list.append(val_UAR)
             info.val_map_list.append(val_mAP)
             info.val_loss_list.append(val_loss)
             info.lr_list.append(optimizer.param_groups[0]['lr'])
+            info.lr_head_list.append(optimizer.param_groups[1]['lr'])
             save(info, audio_model, epoch=epoch, savename=trainconfig['savename'], start_epoch=start_epoch)
 
         scheduler.step()
         epoch += 1
 
 
-def validate(audio_model, val_loader):
+def train_per_epoch(audio_model, train_loader, device, loss_fn, optimizer, scaler, epoch):
+    audio_model.train()
+
+    # TP = [0, 0, 0, 0]
+    # FN = [0, 0, 0, 0]
+    # FP = [0, 0, 0, 0]
+    Recall = [0., 0., 0., 0.]
+    AP = [0., 0., 0., 0.]
+    all_labels = [np.array([]), np.array([]), np.array([]), np.array([])]
+    all_preds = [np.array([]), np.array([]), np.array([]), np.array([])]
+    Total_avg_loss = 0.
+    batch_sum_loss = 0.
+    iter = 0
+
+    loop = tqdm(train_loader)
+    for a_input, v, labels, _ in loop:
+        iter += 1
+        # 随机从10帧中采样1帧
+        index = np.random.randint(0, 10)
+        v_input = v[:, :, index, :, :]
+        v_input = v_input.float()
+        a_input, v_input = a_input.to(device, non_blocking=True), v_input.to(device, non_blocking=True)
+        labels = labels.float().to(device)
+        # 计算loss和uar
+        with autocast():
+            audio_output = audio_model(a_input, v_input, cavmaeconfig['ftmode']).to(device)  # (batch, 4)
+            loss = loss_fn(audio_output, labels)
+
+        for i, (logit, y_true) in enumerate(zip(torch.sigmoid(audio_output).T, labels.T)):  # (4, batch)
+            y_pred = torch.round(logit).detach().to('cpu').numpy()  # 超过0.5为1 否则为0
+            y_true = y_true.detach().to('cpu').numpy()
+            all_preds[i] = np.concatenate((all_preds[i], y_pred))
+            all_labels[i] = np.concatenate((all_labels[i], y_true))
+
+        #     for j in range(len(y_true)):
+        #         if (y_pred[j].item() == 1.) and (y_true[j].item() == 1.):
+        #             TP[i] += 1
+        #         elif (y_pred[j].item() == 0.) and (y_true[j].item() == 1.):
+        #             FN[i] += 1
+        #         elif (y_pred[j].item() == 1.) and (y_true[j].item() == 0.):
+        #             FP[i] += 1
+        #     if TP[i] + FN[i] != 0:
+        #         Recall[i] = TP[i] / (TP[i] + FN[i])
+        #     else:
+        #         Recall[i] = 0
+        #     if TP[i] + FP[i] != 0:
+        #         AP[i] = TP[i] / (TP[i] + FP[i])
+        #     else:
+        #         AP[i] = 0
+        for i in range(4):
+            Recall[i] = recall_score(all_labels[i], all_preds[i], zero_division=0.)
+            AP[i] = average_precision_score(all_labels[i], all_preds[i])
+        mAP = sum(AP) / 4
+        UAR = sum(Recall) / 4
+        batch_sum_loss += loss.item()
+        Total_avg_loss = batch_sum_loss / iter
+        optimizer.zero_grad()
+        scaler.scale(loss).backward()
+        scaler.step(optimizer)
+        scaler.update()
+        loop.set_description('Epoch{}'.format(epoch))
+        loop.set_postfix(Recall=[round(re, 3) for re in Recall],
+                         AP=[round(ap, 3) for ap in AP],
+                         mAP=mAP, UAR=UAR,
+                         loss=Total_avg_loss,
+                         lr=optimizer.param_groups[0]['lr'],
+                         lr_head=optimizer.param_groups[1]['lr'])
+    return UAR, mAP, Total_avg_loss
+
+
+def validate_per_epoch(audio_model, val_loader):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if not isinstance(audio_model, nn.DataParallel):
         audio_model = nn.DataParallel(audio_model)
     audio_model = audio_model.to(device)
     audio_model.eval()
 
-    TP = [0, 0, 0, 0]
-    FP = [0, 0, 0, 0]
-    FN = [0, 0, 0, 0]
+    all_labels = [np.array([]), np.array([]), np.array([]), np.array([])]
+    all_preds = [np.array([]), np.array([]), np.array([]), np.array([])]
     Recall = [0., 0., 0., 0.]
     AP = [0., 0., 0., 0.]
 
@@ -218,23 +238,16 @@ def validate(audio_model, val_loader):
                 audio_output = audio_model(a_input, v_input, cavmaeconfig['ftmode']).to(device)
                 loss = loss_fn(audio_output, labels)
 
-            for i, (logit, y_true) in enumerate(zip(torch.sigmoid(audio_output).T, labels.T)):
-                y_pred = torch.round(logit)  # 超过0.5为1 否则为0
-                for j in range(len(y_true)):
-                    if (y_pred[j].item() == 1.) and (y_true[j].item() == 1.):
-                        TP[i] += 1
-                    elif (y_pred[j].item() == 0.) and (y_true[j].item() == 1.):
-                        FN[i] += 1
-                    elif (y_pred[j].item() == 1.) and (y_true[j].item() == 0.):
-                        FP[i] += 1
-                if TP[i] + FN[i] != 0:
-                    Recall[i] = TP[i] / (TP[i] + FN[i])
-                else:
-                    Recall[i] = 0
-                if TP[i] + FP[i] != 0:
-                    AP[i] = TP[i] / (TP[i] + FP[i])
-                else:
-                    AP[i] = 0
+            for i, (logit, y_true) in enumerate(zip(torch.sigmoid(audio_output).T, labels.T)):  # (4, batch)
+                y_pred = torch.round(logit).detach().to('cpu').numpy()  # 超过0.5为1 否则为0
+                y_true = y_true.detach().to('cpu').numpy()
+                all_preds[i] = np.concatenate((all_preds[i], y_pred))
+                all_labels[i] = np.concatenate((all_labels[i], y_true))
+
+            for i in range(4):
+                Recall[i] = recall_score(all_labels[i], all_preds[i], zero_division=0.)
+                AP[i] = average_precision_score(all_labels[i], all_preds[i])
+
             mAP = sum(AP) / 4
             UAR = sum(Recall) / 4
             batch_sum_loss += loss.item()
@@ -242,90 +255,5 @@ def validate(audio_model, val_loader):
             loop.set_description('Validation')
             loop.set_postfix(Recall=[round(re, 3) for re in Recall], AP=[round(ap, 3) for ap in AP], mAP=mAP, UAR=UAR,
                              loss=Total_avg_loss)
-
     audio_model.train()
     return UAR, mAP, Total_Loss_avg
-
-
-def d_prime(auc):
-    standard_normal = stats.norm()
-    d_prime = standard_normal.ppf(auc) * np.sqrt(2.0)
-    return d_prime
-
-
-def calculate_stats(output, target):
-    """Calculate statistics including mAP, AUC, etc.
-
-    Args:
-      output: 2d array, (samples_num, classes_num)
-      target: 2d array, (samples_num, classes_num)
-
-    Returns:
-      stats: list of statistic of each class.
-    """
-
-    classes_num = target.shape[-1]
-    stats = []
-
-    # Accuracy, only used for single-label classification such as esc-50, not for multiple label one such as AudioSet
-    acc = metrics.accuracy_score(np.argmax(target, 1), np.argmax(output, 1))
-    # Class-wise statistics
-    for k in range(classes_num):
-
-        # Average precision
-        avg_precision = metrics.average_precision_score(
-            target[:, k], output[:, k], average=None)
-        # AUC
-        try:
-            auc = metrics.roc_auc_score(target[:, k], output[:, k], average=None)
-
-            # Precisions, recalls
-            (precisions, recalls, thresholds) = metrics.precision_recall_curve(
-                target[:, k], output[:, k])
-
-            # FPR, TPR
-            (fpr, tpr, thresholds) = metrics.roc_curve(target[:, k], output[:, k])
-
-            save_every_steps = 1000  # Sample statistics to reduce size
-            dict = {'precisions': precisions[0::save_every_steps],
-                    'recalls': recalls[0::save_every_steps],
-                    'AP': avg_precision,
-                    'fpr': fpr[0::save_every_steps],
-                    'fnr': 1. - tpr[0::save_every_steps],
-                    'auc': auc,
-                    # note acc is not class-wise, this is just to keep consistent with other metrics
-                    'acc': acc
-                    }
-        except:
-            dict = {'precisions': -1,
-                    'recalls': -1,
-                    'AP': avg_precision,
-                    'fpr': -1,
-                    'fnr': -1,
-                    'auc': -1,
-                    # note acc is not class-wise, this is just to keep consistent with other metrics
-                    'acc': acc
-                    }
-            print('class {:s} no true sample'.format(str(k)))
-        stats.append(dict)
-
-    return stats
-
-
-class AverageMeter(object):
-    """Computes and stores the average and current value"""
-
-    def __init__(self):
-        self.reset()
-
-    def reset(self):
-        self.val = 0
-        self.avg = 0
-        self.sum = 0
-        self.count = 0
-
-    def update(self, val, n=1):
-        self.val = val
-        self.sum += val * n
-        self.count += n
-        self.avg = self.sum / self.count
