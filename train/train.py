@@ -141,7 +141,7 @@ def train(audio_model, train_loader, val_loader, start_epoch):
                 for j in range(len(y_true)):
                     if (y_pred[j].item() == 1.) and (y_true[j].item() == 1.):
                         TP[i] += 1
-                    elif (y_pred[j].item() == 0.) and (y_true[j].item() == 0.):
+                    elif (y_pred[j].item() == 0.) and (y_true[j].item() == 1.):
                         FN[i] += 1
                     elif (y_pred[j].item() == 1.) and (y_true[j].item() == 0.):
                         FP[i] += 1
@@ -163,7 +163,7 @@ def train(audio_model, train_loader, val_loader, start_epoch):
             scaler.update()
             loop.set_description('Epoch{}'.format(epoch))
             loop.set_postfix(Recall=[round(re, 3) for re in Recall], AP=[round(ap, 3) for ap in AP], mAP=mAP, UAR=UAR, loss=Total_avg_loss,
-                             lr=optimizer.param_groups[0]['lr'])
+                             lr=optimizer.param_groups[0]['lr'], lr_head=optimizer.param_groups[1]['lr'])
         # 每轮验证一次
         val_UAR, val_mAP, val_loss = validate(audio_model, val_loader)
 
@@ -223,7 +223,7 @@ def validate(audio_model, val_loader):
                 for j in range(len(y_true)):
                     if (y_pred[j].item() == 1.) and (y_true[j].item() == 1.):
                         TP[i] += 1
-                    elif (y_pred[j].item() == 0.) and (y_true[j].item() == 0.):
+                    elif (y_pred[j].item() == 0.) and (y_true[j].item() == 1.):
                         FN[i] += 1
                     elif (y_pred[j].item() == 1.) and (y_true[j].item() == 0.):
                         FP[i] += 1
