@@ -16,6 +16,7 @@ import warnings
 import json
 from sklearn import metrics
 from train.train import train
+from model.cnntest import get_resnet50
 from torchsummary import summary
 import random
 
@@ -30,6 +31,7 @@ def setup_seed(seed):
 
 if __name__ == '__main__':
     setup_seed(100)
+
     audio_model = CAVMAEFT(label_dim=cavmaeconfig['n_class'],
                            modality_specific_depth=cavmaeconfig['modality_specific_depth'])
     # for k, v in audio_model.state_dict().items():
@@ -40,6 +42,18 @@ if __name__ == '__main__':
     miss, unexpected = audio_model.load_state_dict(mdl_weight, strict=False)
     print('now load cav-mae pretrained weights from ', cavmaeconfig['pretrain_path'])
     print(miss, unexpected)
-    train_loader, val_dataloader = get_dataloader()
+
+    train_loader, val_loader = get_dataloader(reassemble=True)
     summary(audio_model, input_size=[(1024, 128), (3, 224, 224)], device='cpu')
-    train(audio_model, train_loader, val_dataloader, start_epoch=0)
+    train(audio_model, train_loader, val_loader, start_epoch=0)
+
+
+    '''
+    from model.cnntest import train_resnet50
+    resnet50 = get_resnet50()
+    train_loader, val_loader = get_dataloader()
+    summary(resnet50, input_size=(3, 224, 224), device='cpu')
+    train_resnet50(resnet50, train_loader, val_loader, start_epoch=0)
+    '''
+
+

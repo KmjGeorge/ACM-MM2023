@@ -29,6 +29,7 @@ import pandas as pd
 import h5py
 from configs.nsconfig import *
 import torchvision
+import cv2
 
 
 def plot_waveform(waveform, sr, title="Waveform"):
@@ -209,11 +210,55 @@ class NSDataset(Dataset):
         return self.audio[video_idx], video, self.label[video_idx], self.id[video_idx]
 
 
-def get_dataloader():
-    train = NSDataset('../dataset/train_fbank.h5', '../dataset/train_frames.h5')
+class NSDataset_reassemble4(Dataset):
+    def __init__(self, audio_h5, frames_h5, method='mean'):
+        with h5py.File(audio_h5, 'r') as f:
+            self.audio = f['fbanks'][:]
+            self.id = f['id'][:]
+        with h5py.File(frames_h5, 'r') as f:
+            self.label = f['labels'][:]
+        self.frames_h5 = frames_h5
+        self.method = method
+
+    def __len__(self):
+        return len(self.audio)
+
+    def __getitem__(self, idx):
+        with h5py.File(self.frames_h5, 'r') as f:
+            video = f['frames'][idx]  # (4, 10, 3, 224, 224)
+            video = video.swapaxes(2, 4)  # (4, 10, 224, 224, 3)
+            video = video.swapaxes(2, 3)  # (4, 10, 224, 224, 3)
+            if self.method == 'mean':
+                sum = np.sum(video, axis=0)
+                video = (sum / 4).astype(np.uint8)  # (10, 224, 224, 3)
+            elif self.method == 'concat':
+                downsampled_video = np.ndarray(shape=(4, 10, 112, 112, 3), dtype=np.uint8)
+                for i in range(4):
+                    for j in range(10):
+                        downsample = cv2.resize(video[i][j], dsize=(112, 112), interpolation=cv2.INTER_LINEAR)
+                        downsampled_video[i][j] = downsample
+                concat1 = np.concatenate((downsampled_video[0], downsampled_video[1]), axis=1)
+                concat2 = np.concatenate((downsampled_video[2], downsampled_video[3]), axis=1)
+                concat = np.concatenate((concat1, concat2), axis=2)  # (10, 224, 224, 3)
+                video = concat
+            else:
+                raise 'Error method !'
+            video = video.swapaxes(1, 3)   # (10, 3, 224, 224)
+            video  = video.swapaxes(2, 3)   # (10, 3, 224, 224)
+            video = video.swapaxes(0, 1)   # (3, 10, 224, 224)
+        return self.audio[idx], video, self.label[idx], self.id[idx]
+
+
+def get_dataloader(reassemble=False):
+    if reassemble:
+        train = NSDataset_reassemble4('../dataset/train_fbank.h5', '../dataset/train_frames.h5')
+        val = NSDataset_reassemble4('../dataset/val_fbank.h5', '../dataset/val_frames.h5')
+    else:
+        train = NSDataset('../dataset/train_fbank.h5', '../dataset/train_frames.h5')
+        val = NSDataset('../dataset/val_fbank.h5', '../dataset/val_frames.h5')
     train_dataloader = DataLoader(dataset=train, batch_size=dataconfig['batch_size'], shuffle=dataconfig['shuffle'],
                                   num_workers=dataconfig['num_workers'])
-    val = NSDataset('../dataset/val_fbank.h5', '../dataset/val_frames.h5')
+
     val_dataloader = DataLoader(dataset=val, batch_size=dataconfig['batch_size'], shuffle=False,
                                 num_workers=dataconfig['num_workers'])
     return train_dataloader, val_dataloader
@@ -236,8 +281,8 @@ if __name__ == '__main__':
     # print(len(train_loader))
 
 
-    val = NSDataset('val_fbank.h5', 'val_frames.h5')
-    ns_dataloader = DataLoader(dataset=val, batch_size=dataconfig['batch_size'], shuffle=dataconfig['shuffle'],
+    val = NSDataset_reassemble4('val_fbank.h5', 'val_frames.h5', method='concat')
+    ns_dataloader = DataLoader(dataset=val, batch_size=2, shuffle=dataconfig['shuffle'],
                                num_workers=dataconfig['num_workers'])
     loop = tqdm(ns_dataloader)
     index = 1
@@ -249,6 +294,7 @@ if __name__ == '__main__':
         for item in video:
             pic = torch.transpose(item[:, 4, :, :], 0, 2)  # 打印第5帧
             pic = torch.transpose(pic, 0, 1)
+
             plot_pic(pic.numpy())
         # loop.set_postfix(video_shape=video.shape, audio_shape=audio.shape,
         #                  label_shape=y.shape)  #   (None, 1024, 128) (None, 3, 10, 224, 224) (None, 4)

@@ -540,7 +540,9 @@ class CAVMAEFT(nn.Module):
         # self.mlp_head2 = nn.Sequential(nn.LayerNorm(embed_dim), nn.Linear(embed_dim, label_dim))
         # self.mlp_head3 = nn.Sequential(nn.LayerNorm(embed_dim), nn.Linear(embed_dim, label_dim))
         # self.mlp_head4 = nn.Sequential(nn.LayerNorm(embed_dim), nn.Linear(embed_dim, label_dim))
-        self.mlp_head = nn.Sequential(nn.LayerNorm(embed_dim), nn.Linear(embed_dim, label_dim))
+        self.mlp_hidden = nn.Sequential(nn.LayerNorm(embed_dim), nn.Linear(embed_dim, embed_dim*2))
+        self.mlp_head = nn.Sequential(nn.LayerNorm(embed_dim*2), nn.Linear(embed_dim*2, label_dim))
+
         self.initialize_weights()
 
         print('Audio Positional Embedding Shape:', self.pos_embed_a.shape)
@@ -608,6 +610,7 @@ class CAVMAEFT(nn.Module):
             x = self.norm(x)
 
             x = x.mean(dim=1)
+            x = self.mlp_hidden(x)
             x = self.mlp_head(x)
             # y1, y2, y3, y4 = self.mlp_head1(x), self.mlp_head2(x), self.mlp_head3(x), self.mlp_head4(x)
             return x

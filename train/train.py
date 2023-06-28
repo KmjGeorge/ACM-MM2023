@@ -59,7 +59,8 @@ def train(audio_model, train_loader, val_loader, start_epoch):
     #             'mlp_head_v.0.weight', 'mlp_head_v.0.bias', 'mlp_head_v.1.weight', 'mlp_head_v.1.bias',
     #             'mlp_head_concat.0.weight', 'mlp_head_concat.0.bias', 'mlp_head_concat.1.weight',
     #             'mlp_head_concat.1.bias']
-    mlp_list = ['mlp_head.0.weight', 'mlp_head.0.bias', 'mlp_head.1.weight', 'mlp_head.1.bias',
+    mlp_list = ['mlp_hidden.0.weight', 'mlp_hidden.0.bias', 'mlp_hidden.1.weight', 'mlp_hidden.1.bias',
+                'mlp_head.0.weight', 'mlp_head.0.bias', 'mlp_head.1.weight', 'mlp_head.1.bias',
                 'mlp_head2.0.weight', 'mlp_head2.0.bias', 'mlp_head2.1.weight', 'mlp_head2.1.bias',
                 'mlp_head_a.0.weight', 'mlp_head_a.0.bias', 'mlp_head_a.1.weight', 'mlp_head_a.1.bias',
                 'mlp_head_v.0.weight', 'mlp_head_v.0.bias', 'mlp_head_v.1.weight', 'mlp_head_v.1.bias',
@@ -222,16 +223,21 @@ def validate_per_epoch(audio_model, val_loader):
     with torch.no_grad():
         for a_input, v, labels, _ in loop:
             iter += 1
-            a_input = a_input.to(device)
             labels = labels.float().to(device)
-            audio_output = torch.zeros(size=(a_input.size(0), 4)).to(device)
+            a_input = a_input.to(device)
             # 10帧输入的输出取平均
+            audio_output = torch.zeros(size=(a_input.size(0), 4)).to(device)
             for index in range(10):
                 v_input = v[:, :, index, :, :]
                 v_input = v_input.float().to(device)
                 with autocast():
                     audio_output += audio_model(a_input, v_input, cavmaeconfig['ftmode'])
             audio_output /= 10
+
+            # index = np.random.randint(0, 10)
+            # v_input = v[:, :, index, :, :]
+            # v_input = v_input.float()
+            # a_input, v_input = a_input.to(device, non_blocking=True), v_input.to(device, non_blocking=True)
 
             # 计算loss和uar
             with autocast():
@@ -255,5 +261,5 @@ def validate_per_epoch(audio_model, val_loader):
             loop.set_description('Validation')
             loop.set_postfix(Recall=[round(re, 3) for re in Recall], AP=[round(ap, 3) for ap in AP], mAP=mAP, UAR=UAR,
                              loss=Total_avg_loss)
-    audio_model.train()
+
     return UAR, mAP, Total_Loss_avg
