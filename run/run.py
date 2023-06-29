@@ -31,34 +31,20 @@ def setup_seed(seed):
 
 if __name__ == '__main__':
     setup_seed(100)
-    '''
+
     audio_model = CAVMAEFT(label_dim=cavmaeconfig['n_class'],
                            modality_specific_depth=cavmaeconfig['modality_specific_depth'])
     # for k, v in audio_model.state_dict().items():
     #     print(k)
-    # mdl_weight = torch.load(cavmaeconfig['pretrain_path'])
-    # if not isinstance(audio_model, torch.nn.DataParallel):
-    #     audio_model = torch.nn.DataParallel(audio_model)
-    # miss, unexpected = audio_model.load_state_dict(mdl_weight, strict=False)
-    # print('now load cav-mae pretrained weights from ', cavmaeconfig['pretrain_path'])
-    # print(miss, unexpected)
+    mdl_weight = torch.load(cavmaeconfig['pretrain_path'])
+    if not isinstance(audio_model, torch.nn.DataParallel):
+        audio_model = torch.nn.DataParallel(audio_model)
+    miss, unexpected = audio_model.load_state_dict(mdl_weight, strict=False)
+    print('now load cav-mae pretrained weights from ', cavmaeconfig['pretrain_path'])
+    print(miss, unexpected)
 
     train_loader, val_loader = get_dataloader('mean')
     summary(audio_model, input_size=[(1024, 128), (3, 224, 224)], device='cpu')
     train(audio_model, train_loader, val_loader, start_epoch=0)
-    '''
 
-
-    from model.cnntest import train_resnet50
-
-    resnet50 = get_resnet50()
-    # weights = torch.load('../weights/resnet50-1e-5 0.95_epoch30.pt')
-    # new_weights = {}
-    # for k, v in weights.items():
-    #     new_k = k.replace('module.', '')
-    #     new_weights[new_k] = v
-    # resnet50.load_state_dict(new_weights)
-    train_loader, val_loader = get_dataloader('mean')
-    summary(resnet50, input_size=(3, 224, 224), device='cpu')
-    train_resnet50(resnet50, train_loader, val_loader, start_epoch=0)
 

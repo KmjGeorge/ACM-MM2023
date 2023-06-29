@@ -77,7 +77,7 @@ if __name__ == '__main__':
         new_k = k.replace('module.', '')
         new_weights[new_k] = v
     resnet50.load_state_dict(new_weights)
-    # testloader = get_testloader('mean')
-    trainloader, valloader = get_dataloader('mean')
+    testloader = get_testloader('mean')
+    # trainloader, valloader = get_dataloader('mean')
     summary(resnet50, input_size=(3, 224, 224), device='cpu')
-    evaluate(resnet50, valloader)
+    evaluate(resnet50, testloader)

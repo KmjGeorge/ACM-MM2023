@@ -3,7 +3,7 @@ dataconfig = {
     'audio_path': 'D:/Datasets/NextSpeaker/train_val/',
     'video_path': 'D:/Datasets/NextSpeaker/train_val/sample_frames/',
     'meta_path': 'D:/Datasets/NextSpeaker/next_speaker_train.csv',
-    'batch_size': 64,
+    'batch_size': 8,
     'num_workers': 2,
     'shuffle': True
 }
@@ -28,7 +28,7 @@ cavmaeconfig = {
 }
 
 trainconfig = {
-    'n_epochs': 30,
+    'n_epochs': 50,
     'loss': nn.BCEWithLogitsLoss(),
     'warmup': True,
     'lr': 1e-3,
@@ -39,8 +39,8 @@ trainconfig = {
     'lrscheduler_step': 1,
     'lrscheduler_decay': 0.9,
     'exp_dir': 'D:/github/ACMMM2023/logs/',
-    'freeze_base': True,
+    'freeze_base': False,
     'save_model': True,
-    'savename': 'cavmaeft-hidden2x-reassemble4'
+    'savename': 'cavmaeft-nohidden-all batch8 1e-3 0.9 mean'
 
 }

@@ -218,7 +218,6 @@ def validate_per_epoch(audio_model, val_loader):
     all_preds = [np.array([]), np.array([]), np.array([]), np.array([])]
     Recall = [0., 0., 0., 0.]
     AP = [0., 0., 0., 0.]
-    Total_Loss_avg = 0.
     batch_sum_loss = 0.
     loss_fn = trainconfig['loss']
     iter = 0
@@ -259,4 +258,4 @@ def validate_per_epoch(audio_model, val_loader):
             loop.set_postfix(Recall=[round(re, 3) for re in Recall], AP=[round(ap, 3) for ap in AP], mAP=mAP, UAR=UAR,
                              loss=Total_avg_loss)
 
-    return UAR, mAP, Total_Loss_avg
+    return UAR, mAP, Total_avg_loss
