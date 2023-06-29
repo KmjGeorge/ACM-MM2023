@@ -249,9 +249,6 @@ def validate_per_epoch(audio_model, val_loader):
                 all_labels[i] = np.concatenate((all_labels[i], y_true))
                 Recall[i] = recall_score(all_labels[i], all_preds[i], zero_division=0.)
                 AP[i] = precision_score(all_labels[i], all_preds[i], zero_division=0.)
-            for i_a in range(len(all_labels[0])):
-                if all_labels[0][i_a].item() == 1. and all_preds[0][i_a].item() == 1.:
-                    print('Recall不为0！')
 
             mAP = sum(AP) / 4
             UAR = sum(Recall) / 4
