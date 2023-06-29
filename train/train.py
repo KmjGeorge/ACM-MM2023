@@ -165,13 +165,14 @@ def train_per_epoch(audio_model, train_loader, device, loss_fn, optimizer, scale
             loss += loss_fn(audio_output[:, 2], labels[:, 2])
             loss += loss_fn(audio_output[:, 3], labels[:, 3])
 
-        for i in range(4):  # 提取对每个说话人的预测结果
-            y_pred = torch.round(torch.sigmoid(audio_output[:, i])).detach().to('cpu').numpy()
-            y_true = labels[:, i].to('cpu').numpy()
-            all_preds[i] = np.concatenate((all_preds[i], y_pred))
-            all_labels[i] = np.concatenate((all_labels[i], y_true))
-            Recall[i] = recall_score(all_labels[i], all_preds[i], zero_division=0.)
-            AP[i] = precision_score(all_labels[i], all_preds[i], zero_division=0.)
+        with torch.no_grad():
+            for i in range(4):  # 提取对每个说话人的预测结果
+                y_pred = torch.round(torch.sigmoid(audio_output[:, i])).detach().to('cpu').numpy()
+                y_true = labels[:, i].to('cpu').numpy()
+                all_preds[i] = np.concatenate((all_preds[i], y_pred))
+                all_labels[i] = np.concatenate((all_labels[i], y_true))
+                Recall[i] = recall_score(all_labels[i], all_preds[i], zero_division=0.)
+                AP[i] = precision_score(all_labels[i], all_preds[i], zero_division=0.)
         #     for j in range(len(y_true)):
         #         if (y_pred[j].item() == 1.) and (y_true[j].item() == 1.):
         #             TP[i] += 1
@@ -188,10 +189,10 @@ def train_per_epoch(audio_model, train_loader, device, loss_fn, optimizer, scale
         #     else:
         #         AP[i] = 0
 
-        mAP = sum(AP) / 4
-        UAR = sum(Recall) / 4
-        batch_sum_loss += loss.item()
-        Total_avg_loss = batch_sum_loss / iter
+            mAP = sum(AP) / 4
+            UAR = sum(Recall) / 4
+            batch_sum_loss += loss.item()
+            Total_avg_loss = batch_sum_loss / iter
         optimizer.zero_grad()
         scaler.scale(loss).backward()
         scaler.step(optimizer)

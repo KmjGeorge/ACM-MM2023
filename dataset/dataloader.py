@@ -249,9 +249,12 @@ class NSDataset_reassemble4(Dataset):
         return self.audio[idx], video, self.label[idx], self.id[idx]
 
 
-def get_dataloader(reassemble=False):
-    if reassemble:
-        train = NSDataset_reassemble4('../dataset/train_fbank.h5', '../dataset/train_frames.h5')
+def get_dataloader(reassemble_method=None):
+    if reassemble_method:
+        if reassemble_method not in ['mean', 'concat']:
+            raise 'Error Reassemble Method'
+        train = NSDataset_reassemble4('../dataset/train_fbank.h5', '../dataset/train_frames.h5',
+                                      method=reassemble_method)
         val = NSDataset_reassemble4('../dataset/val_fbank.h5', '../dataset/val_frames.h5')
     else:
         train = NSDataset('../dataset/train_fbank.h5', '../dataset/train_frames.h5')
@@ -262,6 +265,18 @@ def get_dataloader(reassemble=False):
     val_dataloader = DataLoader(dataset=val, batch_size=dataconfig['batch_size'], shuffle=False,
                                 num_workers=dataconfig['num_workers'])
     return train_dataloader, val_dataloader
+
+
+def get_testloader(reassemble_method=None):
+    if reassemble_method:
+        if reassemble_method not in ['mean', 'concat']:
+            raise 'Error Reassemble Method'
+        test = NSDataset('../dataset/test_fbank.h5', '../dataset/test_frames.h5')
+    else:
+        test = NSDataset('../dataset/val_fbank.h5', '../dataset/val_frames.h5')
+    test_dataloader = DataLoader(dataset=test, batch_size=dataconfig['batch_size'], shuffle=False,
+                                 num_workers=dataconfig['num_workers'])
+    return test_dataloader
 
 
 class NSDataset_i3d(Dataset):
