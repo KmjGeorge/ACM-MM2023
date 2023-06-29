@@ -64,9 +64,9 @@ def plot_fbank(fbank, title=None):
     plt.show(block=False)
 
 
-def plot_pic(picture):
+def plot_pic(picture, title):
     fig, axs = plt.subplots(1, 1)
-    axs.set_title("Picture")
+    axs.set_title(title)
     axs.imshow(picture, aspect="auto")
     plt.show(block=False)
 
@@ -243,9 +243,9 @@ class NSDataset_reassemble4(Dataset):
                 video = concat
             else:
                 raise 'Error method !'
-            video = video.swapaxes(1, 3)   # (10, 3, 224, 224)
-            video  = video.swapaxes(2, 3)   # (10, 3, 224, 224)
-            video = video.swapaxes(0, 1)   # (3, 10, 224, 224)
+            video = video.swapaxes(1, 3)  # (10, 3, 224, 224)
+            video = video.swapaxes(2, 3)  # (10, 3, 224, 224)
+            video = video.swapaxes(0, 1)  # (3, 10, 224, 224)
         return self.audio[idx], video, self.label[idx], self.id[idx]
 
 
@@ -264,6 +264,56 @@ def get_dataloader(reassemble=False):
     return train_dataloader, val_dataloader
 
 
+class NSDataset_i3d(Dataset):
+    def __init__(self, audio_h5, i3d_path, meta_path, method='mean'):
+        with h5py.File(audio_h5, 'r') as f:
+            self.audio = f['fbanks'][:]
+            self.id = f['id'][:]
+        self.i3d_path = i3d_path
+        self.frames_h5 = frames_h5
+        self.method = method
+        self.meta_path = meta_path
+
+    def __len__(self):
+        return len(self.audio)
+
+    def __getitem__(self, idx):
+        speaker_id = [self.id[idx].decode()[:-4] + '1', self.id[idx].decode()[:-4] + '2',
+                      self.id[idx].decode()[:-4] + '3', self.id[idx].decode()[:-4] + '4']
+        video_flow = np.zeros(shape=(4, 4, 1024))
+        video_fps = np.zeros(shape=(4,))
+        video_rgb = np.zeros(shape=(4, 4, 1024))
+        video_timestamps_ms = np.zeros(shape=(4, 4))
+        for i in range(len(speaker_id)):
+            video_flow[i] = np.load(os.path.join(self.i3d_path, speaker_id[i] + '_video_flow.npy'))  # (4, 1024)
+            video_fps[i] = np.load(os.path.join(self.i3d_path, speaker_id[i] + '_video_fps.npy'))  # (,)
+            video_rgb[i] = np.load(os.path.join(self.i3d_path, speaker_id[i] + '_video_rgb.npy'))  # (4, 1024)
+            video_timestamps_ms[i] = np.load(
+                os.path.join(self.i3d_path, speaker_id[i] + '_video_timestamps_ms.npy'))  # (4,
+
+        if self.method == 'mean':
+            flow = np.sum(video_flow, axis=0) / 4
+            fps = np.sum(video_fps, axis=0) / 4
+            rgb = np.sum(video_rgb, axis=0) / 4
+            timestamps_ms = np.sum(video_timestamps_ms, axis=0) / 4
+        elif self.method == 'concat':
+            flow = video_flow.reshape(16, 1024)
+            fps = video_fps.reshape(4, )
+            rgb = video_rgb.reshape(16, 1024)
+            timestamps_ms = video_timestamps_ms.reshape(16, )
+        else:
+            raise 'Error method !'
+
+        id = self.id[idx].decode()
+        df = pd.read_csv(self.meta_path)
+        label1 = df[df['id'] == id]['label_1'].values[0]
+        label2 = df[df['id'] == id]['label_2'].values[0]
+        label3 = df[df['id'] == id]['label_3'].values[0]
+        label4 = df[df['id'] == id]['label_4'].values[0]
+        label = [label1, label2, label3, label4]
+        return self.audio[idx], (flow, fps, rgb, timestamps_ms), label, id
+
+
 if __name__ == '__main__':
     # h5generator('dataset.h5')
     # fbank_h5('test_fbank.h5')
@@ -280,25 +330,34 @@ if __name__ == '__main__':
     # train_loader = data.DataLoader(dataset, batch_size=1, shuffle=True)
     # print(len(train_loader))
 
-
-    val = NSDataset_reassemble4('val_fbank.h5', 'val_frames.h5', method='concat')
+    '''
+    val = NSDataset_reassemble4('train_fbank.h5', 'train_frames.h5', method='mean')
     ns_dataloader = DataLoader(dataset=val, batch_size=2, shuffle=dataconfig['shuffle'],
                                num_workers=dataconfig['num_workers'])
     loop = tqdm(ns_dataloader)
     index = 1
     for audio, video, y, id in loop:
+        print(video.shape)
         if index == 0:
             break
-        for item in audio:
-            plot_spectrogram(item.transpose(0, 1))
-        for item in video:
-            pic = torch.transpose(item[:, 4, :, :], 0, 2)  # 打印第5帧
+        for i in range(len(audio)):
+            plot_spectrogram(audio[i].transpose(0, 1), id[i])
+        for i in range(len(video)):
+            pic = torch.transpose(video[i][:, 4, :, :], 0, 2)  # 打印第5帧
             pic = torch.transpose(pic, 0, 1)
 
-            plot_pic(pic.numpy())
-        # loop.set_postfix(video_shape=video.shape, audio_shape=audio.shape,
-        #                  label_shape=y.shape)  #   (None, 1024, 128) (None, 3, 10, 224, 224) (None, 4)
+            plot_pic(pic.numpy(), id[i])
         print(y)
         print(id)
         index -= 1
-
+    '''
+    val = NSDataset_i3d('train_fbank.h5', 'D:/Datasets/NextSpeaker/i3d/',
+                        meta_path='D:/Datasets/NextSpeaker/next_speaker_train.csv', method='concat')
+    ns_dataloader = DataLoader(dataset=val, batch_size=2, shuffle=dataconfig['shuffle'],
+                               num_workers=dataconfig['num_workers'])
+    index = 0
+    for audio, video, y, id in val:
+        print('flow', video[0].shape, 'fps', video[1].shape, 'rgb', video[2].shape, 'timestamps', video[3].shape)
+        if index > 1:
+            break
+        index += 1

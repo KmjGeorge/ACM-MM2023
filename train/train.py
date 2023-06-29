@@ -6,7 +6,7 @@ import numpy as np
 import pickle
 from torch.cuda.amp import autocast, GradScaler
 from scipy import stats
-from sklearn.metrics import recall_score, average_precision_score
+from sklearn.metrics import recall_score, average_precision_score, precision_score
 from configs.nsconfig import dataconfig, audioconfig, trainconfig, cavmaeconfig
 from tqdm import tqdm
 import pandas as pd
@@ -159,14 +159,19 @@ def train_per_epoch(audio_model, train_loader, device, loss_fn, optimizer, scale
         # 计算loss和uar
         with autocast():
             audio_output = audio_model(a_input, v_input, cavmaeconfig['ftmode']).to(device)  # (batch, 4)
-            loss = loss_fn(audio_output, labels)
+            # loss = loss_fn(audio_output, labels)
+            loss = loss_fn(audio_output[:, 0], labels[:, 0])
+            loss += loss_fn(audio_output[:, 1], labels[:, 1])
+            loss += loss_fn(audio_output[:, 2], labels[:, 2])
+            loss += loss_fn(audio_output[:, 3], labels[:, 3])
 
-        for i, (logit, y_true) in enumerate(zip(torch.sigmoid(audio_output).T, labels.T)):  # (4, batch)
-            y_pred = torch.round(logit).detach().to('cpu').numpy()  # 超过0.5为1 否则为0
-            y_true = y_true.detach().to('cpu').numpy()
+        for i in range(4):  # 提取对每个说话人的预测结果
+            y_pred = torch.round(torch.sigmoid(audio_output[:, i])).detach().to('cpu').numpy()
+            y_true = labels[:, i].to('cpu').numpy()
             all_preds[i] = np.concatenate((all_preds[i], y_pred))
             all_labels[i] = np.concatenate((all_labels[i], y_true))
-
+            Recall[i] = recall_score(all_labels[i], all_preds[i], zero_division=0.)
+            AP[i] = precision_score(all_labels[i], all_preds[i], zero_division=0.)
         #     for j in range(len(y_true)):
         #         if (y_pred[j].item() == 1.) and (y_true[j].item() == 1.):
         #             TP[i] += 1
@@ -182,9 +187,7 @@ def train_per_epoch(audio_model, train_loader, device, loss_fn, optimizer, scale
         #         AP[i] = TP[i] / (TP[i] + FP[i])
         #     else:
         #         AP[i] = 0
-        for i in range(4):
-            Recall[i] = recall_score(all_labels[i], all_preds[i], zero_division=0.)
-            AP[i] = average_precision_score(all_labels[i], all_preds[i])
+
         mAP = sum(AP) / 4
         UAR = sum(Recall) / 4
         batch_sum_loss += loss.item()
@@ -214,7 +217,6 @@ def validate_per_epoch(audio_model, val_loader):
     all_preds = [np.array([]), np.array([]), np.array([]), np.array([])]
     Recall = [0., 0., 0., 0.]
     AP = [0., 0., 0., 0.]
-
     Total_Loss_avg = 0.
     batch_sum_loss = 0.
     loss_fn = trainconfig['loss']
@@ -227,32 +229,29 @@ def validate_per_epoch(audio_model, val_loader):
             a_input = a_input.to(device)
             # 10帧输入的输出取平均
             audio_output = torch.zeros(size=(a_input.size(0), 4)).to(device)
-            for index in range(10):
-                v_input = v[:, :, index, :, :]
-                v_input = v_input.float().to(device)
-                with autocast():
-                    audio_output += audio_model(a_input, v_input, cavmaeconfig['ftmode'])
-            audio_output /= 10
-
-            # index = np.random.randint(0, 10)
-            # v_input = v[:, :, index, :, :]
-            # v_input = v_input.float()
-            # a_input, v_input = a_input.to(device, non_blocking=True), v_input.to(device, non_blocking=True)
-
             # 计算loss和uar
             with autocast():
-                audio_output = audio_model(a_input, v_input, cavmaeconfig['ftmode']).to(device)
-                loss = loss_fn(audio_output, labels)
+                for index in range(10):
+                    v_input = v[:, :, index, :, :]
+                    v_input = v_input.float().to(device)
+                    with autocast():
+                        audio_output += audio_model(a_input, v_input, cavmaeconfig['ftmode'])
+                audio_output /= 10
+                loss = loss_fn(audio_output[:, 0], labels[:, 0])
+                loss += loss_fn(audio_output[:, 1], labels[:, 1])
+                loss += loss_fn(audio_output[:, 2], labels[:, 2])
+                loss += loss_fn(audio_output[:, 3], labels[:, 3])
 
-            for i, (logit, y_true) in enumerate(zip(torch.sigmoid(audio_output).T, labels.T)):  # (4, batch)
-                y_pred = torch.round(logit).detach().to('cpu').numpy()  # 超过0.5为1 否则为0
-                y_true = y_true.detach().to('cpu').numpy()
+            for i in range(4):  # 提取对每个说话人的预测结果
+                y_pred = torch.round(torch.sigmoid(audio_output[:, i])).detach().to('cpu').numpy()
+                y_true = labels[:, i].to('cpu').numpy()
                 all_preds[i] = np.concatenate((all_preds[i], y_pred))
                 all_labels[i] = np.concatenate((all_labels[i], y_true))
-
-            for i in range(4):
                 Recall[i] = recall_score(all_labels[i], all_preds[i], zero_division=0.)
-                AP[i] = average_precision_score(all_labels[i], all_preds[i])
+                AP[i] = precision_score(all_labels[i], all_preds[i], zero_division=0.)
+            for i_a in range(len(all_labels[0])):
+                if all_labels[0][i_a].item() == 1. and all_preds[0][i_a].item() == 1.:
+                    print('Recall不为0！')
 
             mAP = sum(AP) / 4
             UAR = sum(Recall) / 4
