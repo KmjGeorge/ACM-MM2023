@@ -110,14 +110,20 @@ def train(audio_model, train_loader, val_loader, start_epoch):
     loss_fn = trainconfig['loss']
 
     epoch += 1
+    last_val_epoch = 0
     scaler = GradScaler()
     print("start training...")
     audio_model.train()
+
     while epoch < trainconfig['n_epochs'] + 1:
         train_uar, train_mAP, train_loss = train_per_epoch(audio_model, train_loader, device, loss_fn, optimizer,
                                                            scaler, epoch)
-        val_UAR, val_mAP, val_loss = validate_per_epoch(audio_model, val_loader)
-
+        if epoch - last_val_epoch == trainconfig['validate_step']:
+            # print('validate on {}'.format(epoch))
+            val_UAR, val_mAP, val_loss = validate_per_epoch(audio_model, val_loader)
+            last_val_epoch = epoch
+        else:
+            val_UAR, val_mAP, val_loss = 0, 0, 0
         if trainconfig['save_model'] == True:
             info.uar_list.append(train_uar)
             info.map_list.append(train_mAP)
@@ -152,7 +158,8 @@ def train_per_epoch(audio_model, train_loader, device, loss_fn, optimizer, scale
         iter += 1
         # 随机从10帧中采样1帧
         index = np.random.randint(0, 10)
-        v_input = v[:, :, index, :, :]
+        # v_input = v[:, :, :, index, :, :]  # (b, 4, 3, 10, 224, 224)
+        v_input = v[:, :, index, :, :]  # (b, 3, 10, 224, 224)
         v_input = v_input.float()
         a_input, v_input = a_input.to(device, non_blocking=True), v_input.to(device, non_blocking=True)
         labels = labels.float().to(device)
@@ -173,21 +180,21 @@ def train_per_epoch(audio_model, train_loader, device, loss_fn, optimizer, scale
                 all_labels[i] = np.concatenate((all_labels[i], y_true))
                 Recall[i] = recall_score(all_labels[i], all_preds[i], zero_division=0.)
                 AP[i] = precision_score(all_labels[i], all_preds[i], zero_division=0.)
-        #     for j in range(len(y_true)):
-        #         if (y_pred[j].item() == 1.) and (y_true[j].item() == 1.):
-        #             TP[i] += 1
-        #         elif (y_pred[j].item() == 0.) and (y_true[j].item() == 1.):
-        #             FN[i] += 1
-        #         elif (y_pred[j].item() == 1.) and (y_true[j].item() == 0.):
-        #             FP[i] += 1
-        #     if TP[i] + FN[i] != 0:
-        #         Recall[i] = TP[i] / (TP[i] + FN[i])
-        #     else:
-        #         Recall[i] = 0
-        #     if TP[i] + FP[i] != 0:
-        #         AP[i] = TP[i] / (TP[i] + FP[i])
-        #     else:
-        #         AP[i] = 0
+            #     for j in range(len(y_true)):
+            #         if (y_pred[j].item() == 1.) and (y_true[j].item() == 1.):
+            #             TP[i] += 1
+            #         elif (y_pred[j].item() == 0.) and (y_true[j].item() == 1.):
+            #             FN[i] += 1
+            #         elif (y_pred[j].item() == 1.) and (y_true[j].item() == 0.):
+            #             FP[i] += 1
+            #     if TP[i] + FN[i] != 0:
+            #         Recall[i] = TP[i] / (TP[i] + FN[i])
+            #     else:
+            #         Recall[i] = 0
+            #     if TP[i] + FP[i] != 0:
+            #         AP[i] = TP[i] / (TP[i] + FP[i])
+            #     else:
+            #         AP[i] = 0
 
             mAP = sum(AP) / 4
             UAR = sum(Recall) / 4
@@ -232,6 +239,7 @@ def validate_per_epoch(audio_model, val_loader):
             # 计算loss和uar
             with autocast():
                 for index in range(10):
+                    # v_input = v[:, :, :, index, :, :]
                     v_input = v[:, :, index, :, :]
                     v_input = v_input.float().to(device)
                     with autocast():

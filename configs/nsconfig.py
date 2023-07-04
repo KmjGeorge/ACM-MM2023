@@ -1,10 +1,10 @@
 import torch.nn as nn
 dataconfig = {
     'audio_path': 'D:/Datasets/NextSpeaker/train_val/',
-    'video_path': 'D:/Datasets/NextSpeaker/train_val/sample_frames/',
+    'video_path': 'D:/Datasets/NextSpeaker/face_deepface/',
     'meta_path': 'D:/Datasets/NextSpeaker/next_speaker_train.csv',
     'batch_size': 8,
-    'num_workers': 2,
+    'num_workers': 0,
     'shuffle': True
 }
 
@@ -28,7 +28,7 @@ cavmaeconfig = {
 }
 
 trainconfig = {
-    'n_epochs': 50,
+    'n_epochs': 30,
     'loss': nn.BCEWithLogitsLoss(),
     'warmup': True,
     'lr': 1e-3,
@@ -37,10 +37,11 @@ trainconfig = {
     'lr_patience': 10,
     'lrscheduler_start': 2,
     'lrscheduler_step': 1,
-    'lrscheduler_decay': 0.9,
+    'lrscheduler_decay': 0.85,
     'exp_dir': 'D:/github/ACMMM2023/logs/',
     'freeze_base': False,
     'save_model': True,
-    'savename': 'cavmaeft-nohidden-all batch8 1e-3 0.9 mean'
+    'savename': 'VocaList concat4 batch8 1e-3 0.85',
+    'validate_step': 3
 
 }

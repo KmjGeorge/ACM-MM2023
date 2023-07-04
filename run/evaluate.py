@@ -9,6 +9,40 @@ from model.cnntest import get_resnet50
 from tqdm import tqdm
 from configs.nsconfig import *
 import random
+import matplotlib.pyplot as plt
+import pandas as pd
+
+
+def show_logs(log_path):
+    df = pd.read_csv(log_path)
+    fig, ax = plt.subplots(2, 2)
+    ax[0][0].plot(df['loss'], label='loss')
+    ax[0][0].plot(df['val_loss'], label='val_loss')
+    ax[0][0].set_title('Loss')
+
+
+    ax[0][1].plot(df['uar'], label='uar')
+    ax[0][1].plot(df['val_uar'], label='val_uar')
+    ax[0][1].set_title('UAR')
+
+    ax[1][0].plot(df['map'], label='map')
+    ax[1][0].plot(df['val_map'], label='val_map')
+    ax[1][0].set_title('MAP')
+
+    ax[1][1].plot(df['lr'], label='lr')
+    ax[1][1].plot(df['lr_head'], label='lr_head')
+    ax[1][1].set_title('Learning Rate')
+
+    for i in range(2):
+        for j in range(2):
+            ax[i][j].legend()
+            ax[i][j].set_xlabel('Epoch')
+
+    plt.tight_layout()
+
+    plt.savefig(log_path.replace('logs', 'figures').replace('csv', 'jpg'))
+    plt.show()
+
 
 
 def setup_seed(seed):
@@ -69,6 +103,7 @@ def evaluate(model, test_loader):
 
 
 if __name__ == '__main__':
+    '''
     setup_seed(100)
     resnet50 = get_resnet50(pretrained=False)
     weights = torch.load('../weights/resnet50-1e-5 0.95_epoch2.pt')
@@ -81,3 +116,5 @@ if __name__ == '__main__':
     # trainloader, valloader = get_dataloader('mean')
     summary(resnet50, input_size=(3, 224, 224), device='cpu')
     evaluate(resnet50, testloader)
+    '''
+    show_logs('../logs/cavmaeft-all concat4 batch8 1e-5 head1 0.9_logs.csv')

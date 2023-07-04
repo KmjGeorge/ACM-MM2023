@@ -12,9 +12,9 @@ import random
 import torch
 import torch.nn as nn
 import timm
-from timm.models.layers import to_2tuple, trunc_normal_, DropPath
+from timm.models.layers import to_2tuple, DropPath
 from timm.models.vision_transformer import Attention, Mlp, PatchEmbed, Block
-from model.pos_embed import get_2d_sincos_pos_embed
+from model.module.cavmae.pos_embed import get_2d_sincos_pos_embed
 
 
 class PatchEmbed(nn.Module):
@@ -536,11 +536,6 @@ class CAVMAEFT(nn.Module):
         self.norm_v = norm_layer(embed_dim)
         self.norm = norm_layer(embed_dim)
 
-        # self.mlp_head1 = nn.Sequential(nn.LayerNorm(embed_dim), nn.Linear(embed_dim, label_dim))
-        # self.mlp_head2 = nn.Sequential(nn.LayerNorm(embed_dim), nn.Linear(embed_dim, label_dim))
-        # self.mlp_head3 = nn.Sequential(nn.LayerNorm(embed_dim), nn.Linear(embed_dim, label_dim))
-        # self.mlp_head4 = nn.Sequential(nn.LayerNorm(embed_dim), nn.Linear(embed_dim, label_dim))
-        # self.mlp_hidden = nn.Sequential(nn.LayerNorm(embed_dim), nn.Linear(embed_dim, embed_dim*2))
         self.mlp_head = nn.Sequential(nn.LayerNorm(embed_dim), nn.Linear(embed_dim, label_dim))
 
         self.initialize_weights()
@@ -586,6 +581,7 @@ class CAVMAEFT(nn.Module):
 
     def forward(self, a, v, mode='multimodal'):
         # multi-modal fine-tuning, our default method for fine-tuning
+        # print('v.shape=', v.shape)  # (b, 4, 3, 224, 224)
         if mode == 'multimodal':
             a = a.unsqueeze(1)
             a = a.transpose(2, 3)
@@ -593,16 +589,29 @@ class CAVMAEFT(nn.Module):
             a = a + self.pos_embed_a
             a = a + self.modality_a
 
+            '''
+            v_speakers = []
+            for i in range(4):
+                # print('shape======', v[:, i].shape)  # (b, 3, 224, 224)
+                v_s = self.patch_embed_v(v[:, i])
+                v_s = v_s + self.pos_embed_v
+                v_s = v_s + self.modality_v
+                for blk in self.blocks_a:
+                    a = blk(a)
+                for blk in self.blocks_v:
+                    v_s = blk(v_s)
+                v_speakers.append(v_s)
+            x = torch.cat((a, v_speakers[0], v_speakers[1], v_speakers[2], v_speakers[3]), dim=1)
+            '''
+
+            # print('shape======', v.shape)  # (b, 3, 224, 224)
             v = self.patch_embed_v(v)
             v = v + self.pos_embed_v
             v = v + self.modality_v
-
             for blk in self.blocks_a:
                 a = blk(a)
-
             for blk in self.blocks_v:
                 v = blk(v)
-
             x = torch.cat((a, v), dim=1)
 
             for blk in self.blocks_u:

@@ -13,6 +13,7 @@ import csv
 import json
 import os.path
 from matplotlib import pyplot as plt
+from torchaudio.transforms import MelScale
 from tqdm import tqdm
 import torchaudio
 import numpy as np
@@ -64,7 +65,7 @@ def plot_fbank(fbank, title=None):
     plt.show(block=False)
 
 
-def plot_pic(picture, title):
+def show_pic(picture, title):
     fig, axs = plt.subplots(1, 1)
     axs.set_title(title)
     axs.imshow(picture, aspect="auto")
@@ -189,6 +190,137 @@ def frames_h5(save_path):
     print('制作h5数据集完成，保存至 {}'.format(save_path))
 
 
+def mel80_h5(save_path):
+    TOP_DB = 100
+    MIN_LEVEL = np.exp(TOP_DB / -20 * np.log(10))
+
+    class HParams:
+        def __init__(self, **kwargs):
+            self.data = {}
+
+            for key, value in kwargs.items():
+                self.data[key] = value
+
+        def __getattr__(self, key):
+            if key not in self.data:
+                raise AttributeError("'HParams' object has no attribute %s" % key)
+            return self.data[key]
+
+        def set_hparam(self, key, value):
+            self.data[key] = value
+
+    hparams = HParams(
+        num_mels=80,  # Number of mel-spectrogram channels and local conditioning dimensionality
+        #  network
+        rescale=True,  # Whether to rescale audio prior to preprocessing
+        rescaling_max=0.9,  # Rescaling value
+
+        # Use LWS (https://github.com/Jonathan-LeRoux/lws) for STFT and phase reconstruction
+        # It"s preferred to set True to use with https://github.com/r9y9/wavenet_vocoder
+        # Does not work if n_ffit is not multiple of hop_size!!
+        use_lws=False,
+        v_shift=15,  # context during evaluation considered on both left and right sides
+        n_stft=401,
+        n_fft=1024,  # Extra window size is filled with 0 paddings to match this parameter
+        hop_size=400,  # For 16000Hz, 200 = 12.5 ms (0.0125 * sample_rate)
+        win_size=800,  # For 16000Hz, 800 = 50 ms (If None, win_size = n_fft) (0.05 * sample_rate)
+        sample_rate=16000,  # 16000Hz (corresponding to librispeech) (sox --i <filename>)
+        frame_shift_ms=None,  # Can replace hop_size parameter. (Recommended: 12.5)
+        # Mel and Linear spectrograms normalization/scaling and clipping
+        signal_normalization=True,
+        # Whether to normalize mel spectrograms to some predefined range (following below parameters)
+        allow_clipping_in_normalization=True,  # Only relevant if mel_normalization = True
+        symmetric_mels=True,
+        # Whether to scale the data to be symmetric around 0. (Also multiplies the output range by 2,
+        # faster and cleaner convergence)
+        max_abs_value=4.,
+        # max absolute value of data. If symmetric, data will be [-max, max] else [0, max] (Must not
+        # be too big to avoid gradient explosion,
+        # not too small for fast convergence)
+        # Contribution by @begeekmyfriend
+        # Spectrogram Pre-Emphasis (Lfilter: Reduce spectrogram noise and helps model certitude
+        # levels. Also allows for better G&L phase reconstruction)
+        preemphasize=True,  # whether to apply filter
+        preemphasis=0.97,  # filter coefficient.
+        # Limits
+        min_level_db=-100,
+        ref_level_db=20,
+        fmin=55,
+        # Set this to 55 if your speaker is male! if female, 95 should help taking off noise. (To
+        # test depending on dataset. Pitch info: male~[65, 260], female~[100, 525])
+        fmax=7600,  # To be increased/reduced depending on data.
+    )
+
+    assert not os.path.exists(save_path), "文件{}已存在！".format(save_path)
+    df = pd.read_csv(dataconfig['meta_path'])
+    loop = tqdm(df['id'])
+    mels = []
+    ids = []
+    for id in loop:
+        audio_full_path = os.path.join(dataconfig['audio_path'], id + '_audio.wav')
+
+        waveform, sr = torchaudio.load(audio_full_path)
+        mel_spec = torchaudio.transforms.MelSpectrogram(sample_rate=hparams.sample_rate, n_fft=hparams.n_fft, hop_length=hparams.hop_size,
+                                                        win_length=hparams.win_size,
+                                                        f_min=hparams.fmin,
+                                                        f_max=hparams.fmax, norm='slaney', mel_scale='slaney',
+                                                        n_mels=hparams.num_mels)
+        mel = mel_spec(waveform)  # (1, 80, 1103)
+        mel = mel.numpy()
+        # mel = mel.transpose(0, 1)
+        # mel = mel.transpose(1, 2)
+        # print(mel.shape)
+        # plot_spectrogram(mel.to('cpu'), id)
+        mels.append(mel)
+        ids.append(id)
+        loop.set_description('读取数据集...')
+    print('制作h5数据集中，可能需要数分钟时间...')
+    with h5py.File(save_path, 'a') as f:
+        f.create_dataset('id', data=ids)
+        f.create_dataset('fbanks', data=mels)
+    print('制作h5数据集完成，保存至 {}'.format(save_path))
+
+
+def faces_h5(save_path):
+    assert not os.path.exists(save_path), "文件{}已存在！".format(save_path)
+    df = pd.read_csv(dataconfig['meta_path'])
+    loop = tqdm(df['id'])
+    for id in loop:
+        video_id = [id[:-4] + str(i + 1) for i in range(4)]
+        frames = []
+        for pos_num in video_id:
+            video = []
+            for i in range(5):
+                frame_full_path = os.path.join(dataconfig['video_path'], 'frame_{}/'.format(i),
+                                               pos_num + '_video_face.jpg')
+                video_frame = torchvision.io.image.read_image(frame_full_path)  # (3, 96, 96)
+                video.append(np.array(video_frame))
+            video = np.array(video)  # 每个视频 (10, 3, 96, 96)
+            frames.append(video)  # 每个ID对应 (4, 10, 3, 96, 96)
+        label1 = df[df['id'] == id]['label_1'].values[0]
+        label2 = df[df['id'] == id]['label_2'].values[0]
+        label3 = df[df['id'] == id]['label_3'].values[0]
+        label4 = df[df['id'] == id]['label_4'].values[0]
+        label = [label1, label2, label3, label4]
+        with h5py.File(save_path, 'a') as f:
+            # print(f['frames'].shape)
+            # print(f['labels'].shape)
+            # print(np.array(frames).shape)
+            # print(np.array(label).shape)
+            try:
+                f['frames'].resize((f['frames'].shape[0] + 1, f['frames'].shape[1], f['frames'].shape[2],
+                                    f['frames'].shape[3], f['frames'].shape[4], f['frames'].shape[5]))
+                f['frames'][-1] = frames
+                f['labels'].resize((f['labels'].shape[0] + 1, f['labels'].shape[1]))
+                f['labels'][-1] = label
+                # print(f['frames'].shape, f['labels'].shape)
+            except:
+                f.create_dataset('frames', chunks=True, maxshape=(None, 4, 5, 3, 96, 96), data=np.array([frames]))
+                f.create_dataset('labels', chunks=True, maxshape=(None, 4), data=np.array([label]))
+        loop.set_description('读取数据集...')
+    print('制作h5数据集完成，保存至 {}'.format(save_path))
+
+
 class NSDataset(Dataset):
     def __init__(self, audio_h5, frames_h5):
         with h5py.File(audio_h5, 'r') as f:
@@ -199,15 +331,13 @@ class NSDataset(Dataset):
         self.frames_h5 = frames_h5
 
     def __len__(self):
-        return len(self.audio) * 4
+        return len(self.audio)
 
     def __getitem__(self, idx):
-        video_idx = int(idx / 4)
-        video_idx_offset = int(idx % 4)
         with h5py.File(self.frames_h5, 'r') as f:
-            video = f['frames'][video_idx][video_idx_offset]
-            video = video.swapaxes(0, 1)  # (C, D, H, W)
-        return self.audio[video_idx], video, self.label[video_idx], self.id[video_idx]
+            video = f['frames'][idx]
+            video = video.swapaxes(1, 2)  # (4, C, D, H, W)
+        return self.audio[idx], video, self.label[idx], self.id[idx]
 
 
 class NSDataset_reassemble4(Dataset):
@@ -253,12 +383,12 @@ def get_dataloader(reassemble_method=None):
     if reassemble_method:
         if reassemble_method not in ['mean', 'concat']:
             raise 'Error Reassemble Method'
-        train = NSDataset_reassemble4('../dataset/train_fbank.h5', '../dataset/train_frames.h5',
+        train = NSDataset_reassemble4('../dataset/train_mel80.h5', '../dataset/train_face_frames.h5',
                                       method=reassemble_method)
-        val = NSDataset_reassemble4('../dataset/val_fbank.h5', '../dataset/val_frames.h5')
+        val = NSDataset_reassemble4('../dataset/val_mel80.h5', '../dataset/val_face_frames.h5')
     else:
-        train = NSDataset('../dataset/train_fbank.h5', '../dataset/train_frames.h5')
-        val = NSDataset('../dataset/val_fbank.h5', '../dataset/val_frames.h5')
+        train = NSDataset('../dataset/train_mel80.h5', '../dataset/train_face_frames.h5')
+        val = NSDataset('../dataset/val_mel80.h5', '../dataset/val_face_frames.h5')
     train_dataloader = DataLoader(dataset=train, batch_size=dataconfig['batch_size'], shuffle=dataconfig['shuffle'],
                                   num_workers=dataconfig['num_workers'])
 
@@ -332,39 +462,29 @@ class NSDataset_i3d(Dataset):
 if __name__ == '__main__':
     # h5generator('dataset.h5')
     # fbank_h5('test_fbank.h5')
-    # frames_h5('test_frames.h5')
-    # from torchvision.datasets import ImageFolder
-    #
-    # from torch.utils import data
-    # from torchvision import transforms
-    #
-    # my_trans = transforms.Compose([
-    #     transforms.ToTensor()
-    # ])
-    # dataset = ImageFolder(frames_folder, transform=my_trans)
-    # train_loader = data.DataLoader(dataset, batch_size=1, shuffle=True)
-    # print(len(train_loader))
-
-    '''
-    val = NSDataset_reassemble4('train_fbank.h5', 'train_frames.h5', method='mean')
+    # faces_h5('val_face_frames.h5')
+    # mel80_h5('train_mel80.h5')
+    val = NSDataset('val_mel80.h5', 'val_face_frames.h5')
     ns_dataloader = DataLoader(dataset=val, batch_size=2, shuffle=dataconfig['shuffle'],
                                num_workers=dataconfig['num_workers'])
     loop = tqdm(ns_dataloader)
     index = 1
     for audio, video, y, id in loop:
-        print(video.shape)
+        print(video.shape)  # (4, 3, 5, 96, 96)
         if index == 0:
             break
         for i in range(len(audio)):
-            plot_spectrogram(audio[i].transpose(0, 1), id[i])
+            audio_show = audio[i].transpose(0, 1)
+            audio_show = audio_show.transpose(1, 2)
+            plot_spectrogram(audio_show, id[i].decode())
         for i in range(len(video)):
-            pic = torch.transpose(video[i][:, 4, :, :], 0, 2)  # 打印第5帧
+            pic = torch.transpose(video[i][1, :, 4, :, :], 0, 2)  # 打印第2人5帧
             pic = torch.transpose(pic, 0, 1)
-
-            plot_pic(pic.numpy(), id[i])
+            show_pic(pic.numpy(), id[i].decode())
         print(y)
         print(id)
         index -= 1
+
     '''
     val = NSDataset_i3d('train_fbank.h5', 'D:/Datasets/NextSpeaker/i3d/',
                         meta_path='D:/Datasets/NextSpeaker/next_speaker_train.csv', method='concat')
@@ -376,3 +496,4 @@ if __name__ == '__main__':
         if index > 1:
             break
         index += 1
+    '''
