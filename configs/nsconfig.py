@@ -4,7 +4,7 @@ dataconfig = {
     'video_path': 'D:/Datasets/NextSpeaker/face_deepface/',
     'meta_path': 'D:/Datasets/NextSpeaker/next_speaker_train.csv',
     'batch_size': 8,
-    'num_workers': 0,
+    'num_workers': 2,
     'shuffle': True
 }
 
@@ -27,21 +27,27 @@ cavmaeconfig = {
     'pretrain_path': '../weights/cav-mae-scale++.pth',
 }
 
+vocalistconfig = {
+    'pool': True
+}
+
 trainconfig = {
     'n_epochs': 30,
     'loss': nn.BCEWithLogitsLoss(),
     'warmup': True,
-    'lr': 1e-3,
+    'lr': 1e-4,
     'head_lr': 1.0,
-    'lr_adapt': False,
-    'lr_patience': 10,
+    'lr_adapt': False,  # only for cavmae
+    'lr_patience': 10,  # only for cavmae
     'lrscheduler_start': 2,
     'lrscheduler_step': 1,
-    'lrscheduler_decay': 0.85,
+    'lrscheduler_decay': 0.9,
     'exp_dir': 'D:/github/ACMMM2023/logs/',
-    'freeze_base': False,
+    'freeze_base': False,   # only for cavmae
     'save_model': True,
-    'savename': 'VocaList concat4 batch8 1e-3 0.85',
-    'validate_step': 3
+    'savename': 'VocaList concat4 batch8 1e-4 0.9',
+    'validate_step': 1,
+    'cls_threshold': 0.4,
+    'norm': True
 
 }

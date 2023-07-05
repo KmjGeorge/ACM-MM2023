@@ -87,24 +87,36 @@ class SyncTransformer(nn.Module):
         self.activ1 = nn.Tanh()
         self.classifier = nn.Linear(d_model, 4)
 
-    def forward(self, frame_seq, mel_seq):
+    def forward(self, frame_seq, mel_seq, pool=False):
         B = frame_seq.shape[0]
         # print(frame_seq.shape)  # (B, 4, 15, 96, 96)
+
         aud_embedding = self.aud_prenet(mel_seq)
         aud_embedding = aud_embedding.squeeze(2)
         aud_embedding = aud_embedding.permute(2, 0, 1).contiguous()
+
         v_speakers = []
 
         for i in range(4):
             speaker_frame = frame_seq[:, i, :, :, :]
             # print('speaker_frame.shape', speaker_frame.shape)
             # print(speaker_frame.view(B, -1, 3, 48, 96).permute(0, 2, 3, 4, 1).contiguous().type())
-            vid_embedding = self.vid_prenet(speaker_frame.view(B, -1, 3, 48, 96).permute(0, 2, 3, 4, 1).contiguous())
-            vid_embedding = vid_embedding.squeeze(2).squeeze(2)
-            vid_embedding = vid_embedding.permute(2, 0, 1).contiguous()
+            if i != 0:
+                with torch.no_grad():
+                    vid_embedding = self.vid_prenet(speaker_frame.view(B, -1, 3, 48, 96).permute(0, 2, 3, 4, 1).contiguous())
+                    vid_embedding = vid_embedding.squeeze(2).squeeze(2)
+                    vid_embedding = vid_embedding.permute(2, 0, 1).contiguous()
+            else:
+                vid_embedding = self.vid_prenet(
+                    speaker_frame.view(B, -1, 3, 48, 96).permute(0, 2, 3, 4, 1).contiguous())
+                vid_embedding = vid_embedding.squeeze(2).squeeze(2)
+                vid_embedding = vid_embedding.permute(2, 0, 1).contiguous()
             # print('embeddding', vid_embedding.shape)     # (10, B, 512)
             v_speakers.append(vid_embedding)
-        vid_embedding_reassemble = torch.cat((v_speakers[0], v_speakers[1], v_speakers[2], v_speakers[3]))
+        if pool:
+            vid_embedding_reassemble = (v_speakers[0] + v_speakers[1] + v_speakers[2] + v_speakers[3]) / 4    # 平均4个视频的特征
+        else:
+            vid_embedding_reassemble = torch.cat((v_speakers[0], v_speakers[1], v_speakers[2], v_speakers[3]))  # 拼接4个视频的特征
         # print('4x', vid_embedding_reassemble.shape)      # (40, B ,512)
 
         av_embedding = self.av_transformer(aud_embedding, vid_embedding_reassemble, vid_embedding_reassemble)

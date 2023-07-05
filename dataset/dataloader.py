@@ -468,7 +468,7 @@ if __name__ == '__main__':
     ns_dataloader = DataLoader(dataset=val, batch_size=2, shuffle=dataconfig['shuffle'],
                                num_workers=dataconfig['num_workers'])
     loop = tqdm(ns_dataloader)
-    index = 1
+    index = 5
     for audio, video, y, id in loop:
         print(video.shape)  # (4, 3, 5, 96, 96)
         if index == 0:
@@ -476,6 +476,7 @@ if __name__ == '__main__':
         for i in range(len(audio)):
             audio_show = audio[i].transpose(0, 1)
             audio_show = audio_show.transpose(1, 2)
+            audio_show = (audio_show - audio_show.mean()) / audio_show.std()
             plot_spectrogram(audio_show, id[i].decode())
         for i in range(len(video)):
             pic = torch.transpose(video[i][1, :, 4, :, :], 0, 2)  # 打印第2人5帧

@@ -6,7 +6,7 @@ import numpy as np
 from torch.cuda.amp import autocast, GradScaler
 
 from sklearn.metrics import recall_score, average_precision_score, precision_score
-from configs.nsconfig import dataconfig, audioconfig, trainconfig, cavmaeconfig
+from configs.nsconfig import dataconfig, audioconfig, trainconfig, cavmaeconfig, vocalistconfig
 from tqdm import tqdm
 import pandas as pd
 
@@ -93,19 +93,30 @@ def train_vocalist_per_epoch(model, train_loader, device, loss_fn, optimizer, sc
     loop = tqdm(train_loader)
     for a_input, v_input, labels, _ in loop:
         iter += 1
-        a_input, v_input = a_input.to(device, non_blocking=True), v_input.float().to(device, non_blocking=True)
+        if trainconfig['norm']:   # 标准化
+            a_input = (a_input - a_input.mean()) / a_input.std()
+            v_input = v_input.float() / 255
+        a_input, v_input = a_input.to(device, non_blocking=True), v_input.to(device, non_blocking=True)
         labels = labels.float().to(device)
+        optimizer.zero_grad()
         # 计算loss和uar
         with autocast():
-            output = model(v_input, a_input).to(device)  # (batch, 4)
-            # loss = loss_fn(audio_output, labels)
-            loss = loss_fn(output[:, 0], labels[:, 0])
-            loss += loss_fn(output[:, 1], labels[:, 1])
-            loss += loss_fn(output[:, 2], labels[:, 2])
-            loss += loss_fn(output[:, 3], labels[:, 3])
+            output = model(v_input, a_input, vocalistconfig['pool']).to(device)  # (batch, 4)
+            loss = loss_fn(output, labels)
+            # loss = loss_fn(output[:, 0], labels[:, 0])
+            # loss += loss_fn(output[:, 1], labels[:, 1])
+            # loss += loss_fn(output[:, 2], labels[:, 2])
+            # loss += loss_fn(output[:, 3], labels[:, 3])
         with torch.no_grad():
             for i in range(4):  # 提取对每个说话人的预测结果
-                y_pred = torch.round(torch.sigmoid(output[:, i])).detach().to('cpu').numpy()
+                # y_pred = torch.round(torch.sigmoid(output[:, i])).detach().to('cpu').numpy()
+                y_pred = torch.sigmoid(output[:, i]).detach().to('cpu').numpy()
+                for b in range(a_input.size(0)):
+                    for l in range(4):
+                        if y_pred[b][l] > trainconfig['cls_threshold']:
+                            y_pred[b][l] = 1.
+                        else:
+                            y_pred[b][l] = 0.
                 y_true = labels[:, i].to('cpu').numpy()
                 all_preds[i] = np.concatenate((all_preds[i], y_pred))
                 all_labels[i] = np.concatenate((all_labels[i], y_true))
@@ -117,7 +128,7 @@ def train_vocalist_per_epoch(model, train_loader, device, loss_fn, optimizer, sc
             batch_sum_loss += loss.item()
             Total_avg_loss = batch_sum_loss / iter
 
-        optimizer.zero_grad()
+
         scaler.scale(loss).backward()
         scaler.step(optimizer)
         scaler.update()
@@ -141,7 +152,6 @@ def validate_vocalist_per_epoch(model, val_loader):
     Recall = [0., 0., 0., 0.]
     AP = [0., 0., 0., 0.]
 
-    Total_Loss_avg = 0.
     batch_sum_loss = 0.
     loss_fn = trainconfig['loss']
     iter = 0
@@ -149,19 +159,30 @@ def validate_vocalist_per_epoch(model, val_loader):
     with torch.no_grad():
         for a_input, v_input, labels, _ in loop:
             iter += 1
+            if trainconfig['norm']:
+                a_input = (a_input - a_input.mean()) / a_input.std()
+                v_input = v_input.float() / 255
             labels = labels.float().to(device)
-            index = np.random.randint(0, 10)
             a_input, v_input = a_input.to(device, non_blocking=True), v_input.float().to(device, non_blocking=True)
             # 计算loss和uar
             with autocast():
-                output = model(v_input, a_input, ).to(device)  # (batch, 4)
-                # loss = loss_fn(audio_output, labels)
-                loss = loss_fn(output[:, 0], labels[:, 0])
-                loss += loss_fn(output[:, 1], labels[:, 1])
-                loss += loss_fn(output[:, 2], labels[:, 2])
-                loss += loss_fn(output[:, 3], labels[:, 3])
+                output = model(v_input, a_input, vocalistconfig['pool']).to(device)  # (batch, 4)
+                loss = loss_fn(output, labels)
+                # loss = loss_fn(output[:, 0], labels[:, 0])
+                # loss += loss_fn(output[:, 1], labels[:, 1])
+                # loss += loss_fn(output[:, 2], labels[:, 2])
+                # loss += loss_fn(output[:, 3], labels[:, 3])
+
             for i in range(4):  # 提取对每个说话人的预测结果
-                y_pred = torch.round(torch.sigmoid(output[:, i])).detach().to('cpu').numpy()
+                # y_pred = torch.round(torch.sigmoid(output[:, i])).detach().to('cpu').numpy()
+                y_pred = torch.sigmoid(output[:, i]).detach().to('cpu').numpy()
+                for b in range(a_input.size(0)):
+                    for l in range(4):
+                        if y_pred[b][l] > trainconfig['cls_threshold']:
+                            y_pred[b][l] = 1.
+                        else:
+                            y_pred[b][l] = 0.
+
                 y_true = labels[:, i].to('cpu').numpy()
                 all_preds[i] = np.concatenate((all_preds[i], y_pred))
                 all_labels[i] = np.concatenate((all_labels[i], y_true))
@@ -175,4 +196,4 @@ def validate_vocalist_per_epoch(model, val_loader):
             loop.set_postfix(Recall=[round(re, 3) for re in Recall], AP=[round(ap, 3) for ap in AP], mAP=mAP, UAR=UAR,
                              loss=Total_avg_loss)
     model.train()
-    return UAR, mAP, Total_Loss_avg
+    return UAR, mAP, Total_avg_loss

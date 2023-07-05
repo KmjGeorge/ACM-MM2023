@@ -2,7 +2,6 @@ import numpy as np
 import torch
 from sklearn.metrics import recall_score, precision_score
 from torch.cuda.amp import autocast
-from model.cnntest import train_resnet50
 from dataset.dataloader import get_testloader, get_dataloader
 from torchsummary import summary
 from model.cnntest import get_resnet50
@@ -11,6 +10,8 @@ from configs.nsconfig import *
 import random
 import matplotlib.pyplot as plt
 import pandas as pd
+
+from model.vocalist import SyncTransformer
 
 
 def show_logs(log_path):
@@ -30,7 +31,10 @@ def show_logs(log_path):
     ax[1][0].set_title('MAP')
 
     ax[1][1].plot(df['lr'], label='lr')
-    ax[1][1].plot(df['lr_head'], label='lr_head')
+    try:
+        ax[1][1].plot(df['lr_head'], label='lr_head')
+    except:
+        pass
     ax[1][1].set_title('Learning Rate')
 
     for i in range(2):
@@ -103,18 +107,19 @@ def evaluate(model, test_loader):
 
 
 if __name__ == '__main__':
-    '''
+
     setup_seed(100)
-    resnet50 = get_resnet50(pretrained=False)
-    weights = torch.load('../weights/resnet50-1e-5 0.95_epoch2.pt')
+    model = SyncTransformer()
+    weights = torch.load('../weights/VocaList concat4 batch8 1e-4 0.9_epoch30.pt')
     new_weights = {}
     for k, v in weights.items():
         new_k = k.replace('module.', '')
         new_weights[new_k] = v
-    resnet50.load_state_dict(new_weights)
+    model.load_state_dict(new_weights)
+    assert False
     testloader = get_testloader('mean')
     # trainloader, valloader = get_dataloader('mean')
-    summary(resnet50, input_size=(3, 224, 224), device='cpu')
-    evaluate(resnet50, testloader)
-    '''
-    show_logs('../logs/cavmaeft-all concat4 batch8 1e-5 head1 0.9_logs.csv')
+    summary(model, input_size=(3, 224, 224), device='cpu')
+    evaluate(model, testloader)
+
+    # show_logs('../logs/VocaList concat4 batch8 1e-4 0.9_logs.csv')
