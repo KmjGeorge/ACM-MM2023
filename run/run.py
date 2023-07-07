@@ -56,7 +56,7 @@ if __name__ == '__main__':
     # vis.directory = '../figures/'
     # vis.view()
     '''
-    train_loader, val_loader = get_dataloader(None)
+    train_loader, val_loader = get_dataloader(None, 15)
     model = SyncTransformer()
     summary(model, input_size=[(4, 15, 96, 96), (1, 80, 1103)], device='cpu')
     print('True Total Parameters:', count_parameters(model))

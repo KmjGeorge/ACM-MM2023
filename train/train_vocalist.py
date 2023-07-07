@@ -63,16 +63,21 @@ def train_vocalist(model, train_loader, val_loader, start_epoch):
     while epoch < trainconfig['n_epochs'] + 1:
         train_uar, train_mAP, train_loss = train_vocalist_per_epoch(model, train_loader, device, loss_fn, optimizer,
                                                                     scaler, epoch)
-        val_uar, val_mAP, val_loss = validate_vocalist_per_epoch(model, val_loader)
-
-        if trainconfig['save_model'] == True:
-            info.uar_list.append(train_uar)
-            info.map_list.append(train_mAP)
-            info.loss_list.append(train_loss)
+        if epoch % trainconfig['validate_step'] == 0:
+            val_uar, val_mAP, val_loss = validate_vocalist_per_epoch(model, val_loader)
             info.val_uar_list.append(val_uar)
             info.val_map_list.append(val_mAP)
             info.val_loss_list.append(val_loss)
-            info.lr_list.append(optimizer.param_groups[0]['lr'])
+        else:
+            info.val_uar_list.append(0)
+            info.val_map_list.append(0)
+            info.val_loss_list.append(0)
+        info.uar_list.append(train_uar)
+        info.map_list.append(train_mAP)
+        info.loss_list.append(train_loss)
+        info.lr_list.append(optimizer.param_groups[0]['lr'])
+
+        if trainconfig['save_model'] == True:
             save(info, model, epoch=epoch, savename=trainconfig['savename'], start_epoch=start_epoch)
 
         scheduler.step()
@@ -93,9 +98,9 @@ def train_vocalist_per_epoch(model, train_loader, device, loss_fn, optimizer, sc
     loop = tqdm(train_loader)
     for a_input, v_input, labels, _ in loop:
         iter += 1
-        if trainconfig['norm']:   # 标准化
+        if trainconfig['audio_norm']:   # 标准化
             a_input = (a_input - a_input.mean()) / a_input.std()
-            v_input = v_input.float() / 255
+        v_input = v_input.float() / 255
         a_input, v_input = a_input.to(device, non_blocking=True), v_input.to(device, non_blocking=True)
         labels = labels.float().to(device)
         optimizer.zero_grad()
@@ -110,13 +115,12 @@ def train_vocalist_per_epoch(model, train_loader, device, loss_fn, optimizer, sc
         with torch.no_grad():
             for i in range(4):  # 提取对每个说话人的预测结果
                 # y_pred = torch.round(torch.sigmoid(output[:, i])).detach().to('cpu').numpy()
-                y_pred = torch.sigmoid(output[:, i]).detach().to('cpu').numpy()
-                for b in range(a_input.size(0)):
-                    for l in range(4):
-                        if y_pred[b][l] > trainconfig['cls_threshold']:
-                            y_pred[b][l] = 1.
-                        else:
-                            y_pred[b][l] = 0.
+                y_pred = torch.sigmoid(output[:, i]).detach().to('cpu').numpy()    # (batch, )
+                for b_index in range(a_input.size(0)):
+                    if y_pred[b_index] > trainconfig['cls_threshold']:
+                        y_pred[b_index] = 1.
+                    else:
+                        y_pred[b_index] = 0.
                 y_true = labels[:, i].to('cpu').numpy()
                 all_preds[i] = np.concatenate((all_preds[i], y_pred))
                 all_labels[i] = np.concatenate((all_labels[i], y_true))
@@ -159,9 +163,9 @@ def validate_vocalist_per_epoch(model, val_loader):
     with torch.no_grad():
         for a_input, v_input, labels, _ in loop:
             iter += 1
-            if trainconfig['norm']:
+            if trainconfig['audio_norm']:
                 a_input = (a_input - a_input.mean()) / a_input.std()
-                v_input = v_input.float() / 255
+            v_input = v_input.float() / 255
             labels = labels.float().to(device)
             a_input, v_input = a_input.to(device, non_blocking=True), v_input.float().to(device, non_blocking=True)
             # 计算loss和uar
@@ -175,13 +179,12 @@ def validate_vocalist_per_epoch(model, val_loader):
 
             for i in range(4):  # 提取对每个说话人的预测结果
                 # y_pred = torch.round(torch.sigmoid(output[:, i])).detach().to('cpu').numpy()
-                y_pred = torch.sigmoid(output[:, i]).detach().to('cpu').numpy()
-                for b in range(a_input.size(0)):
-                    for l in range(4):
-                        if y_pred[b][l] > trainconfig['cls_threshold']:
-                            y_pred[b][l] = 1.
-                        else:
-                            y_pred[b][l] = 0.
+                y_pred = torch.sigmoid(output[:, i]).detach().to('cpu').numpy()    # (batch, )
+                for b_index in range(a_input.size(0)):
+                    if y_pred[b_index] > trainconfig['cls_threshold']:
+                        y_pred[b_index] = 1.
+                    else:
+                        y_pred[b_index] = 0.
 
                 y_true = labels[:, i].to('cpu').numpy()
                 all_preds[i] = np.concatenate((all_preds[i], y_pred))

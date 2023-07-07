@@ -281,7 +281,7 @@ def mel80_h5(save_path):
     print('制作h5数据集完成，保存至 {}'.format(save_path))
 
 
-def faces_h5(save_path):
+def faces_h5(save_path, num_frame):
     assert not os.path.exists(save_path), "文件{}已存在！".format(save_path)
     df = pd.read_csv(dataconfig['meta_path'])
     loop = tqdm(df['id'])
@@ -290,7 +290,7 @@ def faces_h5(save_path):
         frames = []
         for pos_num in video_id:
             video = []
-            for i in range(5):
+            for i in range(num_frame):
                 frame_full_path = os.path.join(dataconfig['video_path'], 'frame_{}/'.format(i),
                                                pos_num + '_video_face.jpg')
                 video_frame = torchvision.io.image.read_image(frame_full_path)  # (3, 96, 96)
@@ -315,7 +315,7 @@ def faces_h5(save_path):
                 f['labels'][-1] = label
                 # print(f['frames'].shape, f['labels'].shape)
             except:
-                f.create_dataset('frames', chunks=True, maxshape=(None, 4, 5, 3, 96, 96), data=np.array([frames]))
+                f.create_dataset('frames', chunks=True, maxshape=(None, 4, num_frame, 3, 96, 96), data=np.array([frames]))
                 f.create_dataset('labels', chunks=True, maxshape=(None, 4), data=np.array([label]))
         loop.set_description('读取数据集...')
     print('制作h5数据集完成，保存至 {}'.format(save_path))
@@ -379,16 +379,16 @@ class NSDataset_reassemble4(Dataset):
         return self.audio[idx], video, self.label[idx], self.id[idx]
 
 
-def get_dataloader(reassemble_method=None):
+def get_dataloader(reassemble_method=None, num_frame=5):
     if reassemble_method:
         if reassemble_method not in ['mean', 'concat']:
             raise 'Error Reassemble Method'
-        train = NSDataset_reassemble4('../dataset/train_mel80.h5', '../dataset/train_face_frames.h5',
+        train = NSDataset_reassemble4('../dataset/train_mel80.h5', '../dataset/train_face_frames{}.h5'.format(num_frame),
                                       method=reassemble_method)
-        val = NSDataset_reassemble4('../dataset/val_mel80.h5', '../dataset/val_face_frames.h5')
+        val = NSDataset_reassemble4('../dataset/val_mel80.h5', '../dataset/val_face_frames{}.h5'.format(num_frame))
     else:
-        train = NSDataset('../dataset/train_mel80.h5', '../dataset/train_face_frames.h5')
-        val = NSDataset('../dataset/val_mel80.h5', '../dataset/val_face_frames.h5')
+        train = NSDataset('../dataset/train_mel80.h5', '../dataset/train_face_frames{}.h5'.format(num_frame))
+        val = NSDataset('../dataset/val_mel80.h5', '../dataset/val_face_frames{}.h5'.format(num_frame))
     train_dataloader = DataLoader(dataset=train, batch_size=dataconfig['batch_size'], shuffle=dataconfig['shuffle'],
                                   num_workers=dataconfig['num_workers'])
 
@@ -462,9 +462,9 @@ class NSDataset_i3d(Dataset):
 if __name__ == '__main__':
     # h5generator('dataset.h5')
     # fbank_h5('test_fbank.h5')
-    # faces_h5('val_face_frames.h5')
+    # faces_h5('val_face_frames15.h5', num_frame=15)
     # mel80_h5('train_mel80.h5')
-    val = NSDataset('val_mel80.h5', 'val_face_frames.h5')
+    val = NSDataset('val_mel80.h5', 'val_face_frames15.h5')
     ns_dataloader = DataLoader(dataset=val, batch_size=2, shuffle=dataconfig['shuffle'],
                                num_workers=dataconfig['num_workers'])
     loop = tqdm(ns_dataloader)
@@ -476,7 +476,7 @@ if __name__ == '__main__':
         for i in range(len(audio)):
             audio_show = audio[i].transpose(0, 1)
             audio_show = audio_show.transpose(1, 2)
-            audio_show = (audio_show - audio_show.mean()) / audio_show.std()
+            # audio_show = (audio_show - audio_show.mean()) / audio_show.std()
             plot_spectrogram(audio_show, id[i].decode())
         for i in range(len(video)):
             pic = torch.transpose(video[i][1, :, 4, :, :], 0, 2)  # 打印第2人5帧

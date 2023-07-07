@@ -53,7 +53,6 @@ def no_face_mask(csv_path, target_path):
 
 
 if __name__ == '__main__':
-
     Error = []
     for i in range(15):
         frame = 'frame_{}/'.format(i)

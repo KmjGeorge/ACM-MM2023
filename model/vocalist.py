@@ -96,14 +96,17 @@ class SyncTransformer(nn.Module):
         aud_embedding = aud_embedding.permute(2, 0, 1).contiguous()
 
         v_speakers = []
-
-        for i in range(4):
+        index = np.random.choice([0, 1, 2, 3], size=4, replace=False)  # 打乱四个视频
+        v_backward = False  # 仅第一次前向传播需要更新梯度
+        for i in index:
             speaker_frame = frame_seq[:, i, :, :, :]
             # print('speaker_frame.shape', speaker_frame.shape)
             # print(speaker_frame.view(B, -1, 3, 48, 96).permute(0, 2, 3, 4, 1).contiguous().type())
-            if i != 0:
+
+            if v_backward:
                 with torch.no_grad():
-                    vid_embedding = self.vid_prenet(speaker_frame.view(B, -1, 3, 48, 96).permute(0, 2, 3, 4, 1).contiguous())
+                    vid_embedding = self.vid_prenet(
+                        speaker_frame.view(B, -1, 3, 48, 96).permute(0, 2, 3, 4, 1).contiguous())
                     vid_embedding = vid_embedding.squeeze(2).squeeze(2)
                     vid_embedding = vid_embedding.permute(2, 0, 1).contiguous()
             else:
@@ -111,12 +114,15 @@ class SyncTransformer(nn.Module):
                     speaker_frame.view(B, -1, 3, 48, 96).permute(0, 2, 3, 4, 1).contiguous())
                 vid_embedding = vid_embedding.squeeze(2).squeeze(2)
                 vid_embedding = vid_embedding.permute(2, 0, 1).contiguous()
+                v_backward = True
+
             # print('embeddding', vid_embedding.shape)     # (10, B, 512)
             v_speakers.append(vid_embedding)
         if pool:
-            vid_embedding_reassemble = (v_speakers[0] + v_speakers[1] + v_speakers[2] + v_speakers[3]) / 4    # 平均4个视频的特征
+            vid_embedding_reassemble = (v_speakers[0] + v_speakers[1] + v_speakers[2] + v_speakers[3]) / 4  # 平均4个视频的特征
         else:
-            vid_embedding_reassemble = torch.cat((v_speakers[0], v_speakers[1], v_speakers[2], v_speakers[3]))  # 拼接4个视频的特征
+            vid_embedding_reassemble = torch.cat(
+                (v_speakers[0], v_speakers[1], v_speakers[2], v_speakers[3]))  # 拼接4个视频的特征
         # print('4x', vid_embedding_reassemble.shape)      # (40, B ,512)
 
         av_embedding = self.av_transformer(aud_embedding, vid_embedding_reassemble, vid_embedding_reassemble)
