@@ -190,7 +190,7 @@ def frames_h5(save_path):
     print('制作h5数据集完成，保存至 {}'.format(save_path))
 
 
-def mel80_h5(save_path):
+def mel80_h5(save_path, norm=True):
     TOP_DB = 100
     MIN_LEVEL = np.exp(TOP_DB / -20 * np.log(10))
 
@@ -260,11 +260,13 @@ def mel80_h5(save_path):
         audio_full_path = os.path.join(dataconfig['audio_path'], id + '_audio.wav')
 
         waveform, sr = torchaudio.load(audio_full_path)
-        mel_spec = torchaudio.transforms.MelSpectrogram(sample_rate=hparams.sample_rate, n_fft=hparams.n_fft, hop_length=hparams.hop_size,
+        mel_spec = torchaudio.transforms.MelSpectrogram(sample_rate=hparams.sample_rate, n_fft=hparams.n_fft,
+                                                        hop_length=hparams.hop_size,
                                                         win_length=hparams.win_size,
                                                         f_min=hparams.fmin,
                                                         f_max=hparams.fmax, norm='slaney', mel_scale='slaney',
-                                                        n_mels=hparams.num_mels)
+                                                        n_mels=hparams.num_mels,
+                                                        normalized=norm)
         mel = mel_spec(waveform)  # (1, 80, 1103)
         mel = mel.numpy()
         # mel = mel.transpose(0, 1)
@@ -315,20 +317,26 @@ def faces_h5(save_path, num_frame):
                 f['labels'][-1] = label
                 # print(f['frames'].shape, f['labels'].shape)
             except:
-                f.create_dataset('frames', chunks=True, maxshape=(None, 4, num_frame, 3, 96, 96), data=np.array([frames]))
+                f.create_dataset('frames', chunks=True, maxshape=(None, 4, num_frame, 3, 96, 96),
+                                 data=np.array([frames]))
                 f.create_dataset('labels', chunks=True, maxshape=(None, 4), data=np.array([label]))
         loop.set_description('读取数据集...')
     print('制作h5数据集完成，保存至 {}'.format(save_path))
 
 
 class NSDataset(Dataset):
-    def __init__(self, audio_h5, frames_h5):
+    def __init__(self, audio_h5, frames_h5, norm=True):
         with h5py.File(audio_h5, 'r') as f:
             self.audio = f['fbanks'][:]
             self.id = f['id'][:]
         with h5py.File(frames_h5, 'r') as f:
             self.label = f['labels'][:]
         self.frames_h5 = frames_h5
+        self.norm = norm
+        self.audio_mean = dataconfig['audio_mean']
+        self.audio_std = dataconfig['audio_std']
+        self.video_mean = dataconfig['video_mean']
+        self.video_std = dataconfig['video_std']
 
     def __len__(self):
         return len(self.audio)
@@ -337,7 +345,16 @@ class NSDataset(Dataset):
         with h5py.File(self.frames_h5, 'r') as f:
             video = f['frames'][idx]
             video = video.swapaxes(1, 2)  # (4, C, D, H, W)
-        return self.audio[idx], video, self.label[idx], self.id[idx]
+            video = video.astype(np.float32)
+            video /= 255
+        audio = self.audio[idx]  # (1, F, T)
+        # if self.norm:
+        #     for c in range(3):
+        #         video[:, c, :, :, :] -= self.video_mean[c]
+        #         video[:, c, :, :, :] /= self.video_std[c]
+        #     audio[0] -= self.audio_mean[0]
+        #     audio[0] /= self.audio_std[0]
+        return audio, video, self.label[idx], self.id[idx].decode()
 
 
 class NSDataset_reassemble4(Dataset):
@@ -379,16 +396,17 @@ class NSDataset_reassemble4(Dataset):
         return self.audio[idx], video, self.label[idx], self.id[idx]
 
 
-def get_dataloader(reassemble_method=None, num_frame=5):
-    if reassemble_method:
-        if reassemble_method not in ['mean', 'concat']:
-            raise 'Error Reassemble Method'
-        train = NSDataset_reassemble4('../dataset/train_mel80.h5', '../dataset/train_face_frames{}.h5'.format(num_frame),
-                                      method=reassemble_method)
-        val = NSDataset_reassemble4('../dataset/val_mel80.h5', '../dataset/val_face_frames{}.h5'.format(num_frame))
-    else:
-        train = NSDataset('../dataset/train_mel80.h5', '../dataset/train_face_frames{}.h5'.format(num_frame))
-        val = NSDataset('../dataset/val_mel80.h5', '../dataset/val_face_frames{}.h5'.format(num_frame))
+def get_dataloader(reassemble_method=None, num_frame=15, norm=True):
+    # if reassemble_method:
+    #     if reassemble_method not in ['mean', 'concat']:
+    #         raise 'Error Reassemble Method'
+    #     train = NSDataset_reassemble4('../dataset/train_mel80.h5',
+    #                                   '../dataset/train_face_frames{}.h5'.format(num_frame),
+    #                                   method=reassemble_method)
+    #     val = NSDataset_reassemble4('../dataset/val_mel80.h5', '../dataset/val_face_frames{}.h5'.format(num_frame))
+    # else:
+    train = NSDataset('../dataset/train_mel80.h5', '../dataset/train_face_frames{}.h5'.format(num_frame), norm=True)
+    val = NSDataset('../dataset/val_mel80.h5', '../dataset/val_face_frames{}.h5'.format(num_frame), norm=True)
     train_dataloader = DataLoader(dataset=train, batch_size=dataconfig['batch_size'], shuffle=dataconfig['shuffle'],
                                   num_workers=dataconfig['num_workers'])
 
@@ -397,13 +415,12 @@ def get_dataloader(reassemble_method=None, num_frame=5):
     return train_dataloader, val_dataloader
 
 
-def get_testloader(reassemble_method=None):
-    if reassemble_method:
-        if reassemble_method not in ['mean', 'concat']:
-            raise 'Error Reassemble Method'
-        test = NSDataset('../dataset/test_fbank.h5', '../dataset/test_frames.h5')
-    else:
-        test = NSDataset('../dataset/val_fbank.h5', '../dataset/val_frames.h5')
+def get_testloader(reassemble_method=None, num_frame=15, norm=True):
+    # if reassemble_method:
+    #     if reassemble_method not in ['mean', 'concat']:
+    #         raise 'Error Reassemble Method'
+    #     test = NSDataset('../dataset/test_fbank.h5', '../dataset/test_frames.h5')
+    test = NSDataset('../dataset/test_mel80.h5', '../dataset/test_face_frames{}.h5'.format(num_frame), norm)
     test_dataloader = DataLoader(dataset=test, batch_size=dataconfig['batch_size'], shuffle=False,
                                  num_workers=dataconfig['num_workers'])
     return test_dataloader
@@ -460,31 +477,77 @@ class NSDataset_i3d(Dataset):
 
 
 if __name__ == '__main__':
-    # h5generator('dataset.h5')
-    # fbank_h5('test_fbank.h5')
-    # faces_h5('val_face_frames15.h5', num_frame=15)
-    # mel80_h5('train_mel80.h5')
-    val = NSDataset('val_mel80.h5', 'val_face_frames15.h5')
-    ns_dataloader = DataLoader(dataset=val, batch_size=2, shuffle=dataconfig['shuffle'],
+
+    # faces_h5('test_face_frames15.h5', num_frame=15)
+    # mel80_h5('test_mel80.h5')
+
+    '''
+    train = NSDataset('train_mel80.h5', 'train_face_frames15.h5', norm=False)
+    val = NSDataset('val_mel80.h5', 'val_face_frames15.h5', norm=False)
+    test = NSDataset('test_mel80.h5', 'test_face_frames15.h5', norm=False)
+    loop1 = tqdm(train)
+    loop2 = tqdm(val)
+    loop3 = tqdm(test)
+    audio_mean = torch.zeros(1)
+    audio_var = torch.zeros(1)
+    video_mean = torch.zeros(3)
+    video_var = torch.zeros(3)
+    total_len = len(train) + len(val) + len(test)
+    for audio, video, y, id in loop1:
+        # print(audio.shape, video.shape)  (1, 80, 1103)  (4, 3, 15, 96, 96)
+        audio_mean += np.mean(audio, axis=(1, 2))
+        video_mean += np.mean(video, axis=(0, 2, 3, 4))
+        audio_var += np.var(audio, axis=(1, 2))
+        video_var += np.var(video, axis=(0, 2, 3, 4))
+    for audio, video, y, id in loop2:
+        audio_mean += np.mean(audio, axis=(1, 2))
+        video_mean += np.mean(video, axis=(0, 2, 3, 4))
+        audio_var += np.var(audio, axis=(1, 2))
+        video_var += np.var(video, axis=(0, 2, 3, 4))
+    for audio, video, y, id in loop3:
+        audio_mean += np.mean(audio, axis=(1, 2))
+        video_mean += np.mean(video, axis=(0, 2, 3, 4))
+        audio_var += np.var(audio, axis=(1, 2))
+        video_var += np.var(video, axis=(0, 2, 3, 4))
+    audio_mean /= total_len
+    video_mean /= total_len
+    audio_var /= total_len
+    video_var /= total_len
+    audio_std = np.sqrt(audio_var)
+    video_std = np.sqrt(video_var)
+    print(audio_mean)
+    print(video_mean)
+    print(audio_std)
+    print(video_std)
+    '''
+
+    test = NSDataset('test_mel80.h5', 'test_face_frames15.h5', norm=False)
+    ns_dataloader = DataLoader(dataset=test, batch_size=2, shuffle=False,
                                num_workers=dataconfig['num_workers'])
     loop = tqdm(ns_dataloader)
-    index = 5
+    index = 1
     for audio, video, y, id in loop:
         print(video.shape)  # (4, 3, 5, 96, 96)
+        print(audio.shape)
+        # print(audio)
+        # print(video[1])
         if index == 0:
             break
         for i in range(len(audio)):
             audio_show = audio[i].transpose(0, 1)
             audio_show = audio_show.transpose(1, 2)
-            # audio_show = (audio_show - audio_show.mean()) / audio_show.std()
-            plot_spectrogram(audio_show, id[i].decode())
+            # audio_show *= 255
+            plot_spectrogram(audio_show, id[i])
+            # print(audio_show)
         for i in range(len(video)):
             pic = torch.transpose(video[i][1, :, 4, :, :], 0, 2)  # 打印第2人5帧
             pic = torch.transpose(pic, 0, 1)
-            show_pic(pic.numpy(), id[i].decode())
+            # print(pic)
+            show_pic(pic.numpy(), id[i])
         print(y)
         print(id)
         index -= 1
+
 
     '''
     val = NSDataset_i3d('train_fbank.h5', 'D:/Datasets/NextSpeaker/i3d/',

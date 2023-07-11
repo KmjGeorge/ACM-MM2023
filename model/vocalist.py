@@ -89,32 +89,26 @@ class SyncTransformer(nn.Module):
 
     def forward(self, frame_seq, mel_seq, pool=False):
         B = frame_seq.shape[0]
-        # print(frame_seq.shape)  # (B, 4, 15, 96, 96)
-
+        # print(frame_seq.shape)  # (B, 4, 3*num_frames, 96, 96)
         aud_embedding = self.aud_prenet(mel_seq)
         aud_embedding = aud_embedding.squeeze(2)
         aud_embedding = aud_embedding.permute(2, 0, 1).contiguous()
 
         v_speakers = []
         index = np.random.choice([0, 1, 2, 3], size=4, replace=False)  # 打乱四个视频
-        v_backward = False  # 仅第一次前向传播需要更新梯度
-        for i in index:
+        for i_index, i in enumerate(index):
             speaker_frame = frame_seq[:, i, :, :, :]
-            # print('speaker_frame.shape', speaker_frame.shape)
-            # print(speaker_frame.view(B, -1, 3, 48, 96).permute(0, 2, 3, 4, 1).contiguous().type())
-
-            if v_backward:
+            if i_index == 0:
+                vid_embedding = self.vid_prenet(
+                    speaker_frame.view(B, -1, 3, 48, 96).permute(0, 2, 3, 4, 1).contiguous())
+                vid_embedding = vid_embedding.squeeze(2).squeeze(2)
+                vid_embedding = vid_embedding.permute(2, 0, 1).contiguous()
+            else:
                 with torch.no_grad():
                     vid_embedding = self.vid_prenet(
                         speaker_frame.view(B, -1, 3, 48, 96).permute(0, 2, 3, 4, 1).contiguous())
                     vid_embedding = vid_embedding.squeeze(2).squeeze(2)
                     vid_embedding = vid_embedding.permute(2, 0, 1).contiguous()
-            else:
-                vid_embedding = self.vid_prenet(
-                    speaker_frame.view(B, -1, 3, 48, 96).permute(0, 2, 3, 4, 1).contiguous())
-                vid_embedding = vid_embedding.squeeze(2).squeeze(2)
-                vid_embedding = vid_embedding.permute(2, 0, 1).contiguous()
-                v_backward = True
 
             # print('embeddding', vid_embedding.shape)     # (10, B, 512)
             v_speakers.append(vid_embedding)
@@ -142,14 +136,14 @@ if __name__ == "__main__":
     from torchsummary import summary
 
     mel_seq = torch.rand([6, 1, 80, 1103])
-    frame_seq = torch.rand([6, 4, 15, 96, 96])
+    frame_seq = torch.rand([6, 4, 45, 96, 96])
     model = SyncTransformer()
     output = model(frame_seq, mel_seq)
     print(output.shape)
-    summary(model, input_size=[(4, 15, 96, 96), (1, 80, 1103)], device='cpu')
-    # key: state_dict, optimizer, global_step, global_epoch
-    weights = torch.load('../weights/VocaLiST_Weights/vocalist_5f_lrs2.pth')
-    # for k in weights.keys():
-    #     print(k)
-    model.load_state_dict(weights['state_dict'])
+    summary(model, input_size=[(4, 45, 96, 96), (1, 80, 1103)], device='cpu')
+    # # key: state_dict, optimizer, global_step, global_epoch
+    # weights = torch.load('../weights/VocaLiST_Weights/vocalist_5f_lrs2.pth')
+    # # for k in weights.keys():
+    # #     print(k)
+    # model.load_state_dict(weights['state_dict'])
     print(count_parameters(model))

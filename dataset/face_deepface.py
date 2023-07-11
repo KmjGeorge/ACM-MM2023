@@ -38,9 +38,9 @@ def get_face(file_path, target_path):
     return None
 
 
-def no_face_mask(csv_path, target_path):
+def no_face_mask(csv_path, target_path, num_frames=15):
     df = pd.read_csv(csv_path)
-    for i in range(5):
+    for i in range(num_frames):
         loop = tqdm(df['0'])
         frame = 'frame_{}/'.format(i)
         for file in loop:

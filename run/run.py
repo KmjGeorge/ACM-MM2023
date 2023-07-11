@@ -56,17 +56,16 @@ if __name__ == '__main__':
     # vis.directory = '../figures/'
     # vis.view()
     '''
-    train_loader, val_loader = get_dataloader(None, 15)
+    train_loader, val_loader = get_dataloader(None, 15, norm=False)
     model = SyncTransformer()
-    summary(model, input_size=[(4, 15, 96, 96), (1, 80, 1103)], device='cpu')
+    summary(model, input_size=[(4, 15*3, 96, 96), (1, 80, 1103)], device='cpu')
     print('True Total Parameters:', count_parameters(model))
     # key: state_dict, optimizer, global_step, global_epoch
     weights = torch.load('../weights/VocaLiST_Weights/vocalist_5f_lrs2.pth')
-    # for k in weights['state_dict'].keys():
-    #     weights['state_dict']
     del weights['state_dict']['classifier.weight']
     del weights['state_dict']['classifier.bias']
-    model.load_state_dict(weights['state_dict'], strict=False)
+    # model.load_state_dict(weights['state_dict'], strict=False)
+    # print('loading pretrained weights...')
 
     train.train_vocalist.train_vocalist(model, train_loader, val_loader, start_epoch=0)
 
