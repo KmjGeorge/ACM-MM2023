@@ -122,14 +122,16 @@ def train_vocalist_per_epoch(model, train_loader, device, loss_fn, optimizer, sc
                 y_true = labels[:, i].to('cpu').numpy()
                 all_preds[i] = np.concatenate((all_preds[i], y_pred))
                 all_labels[i] = np.concatenate((all_labels[i], y_true))
-                Recall[i] = recall_score(all_labels[i], all_preds[i], zero_division=0.)
-                AP[i] = precision_score(all_labels[i], all_preds[i], zero_division=0.)
+                Recall[i] = recall_score(all_labels[i], all_preds[i], zero_division=0.,  average='macro')
+                AP[i] = precision_score(all_labels[i], all_preds[i], zero_division=0.,  average='macro')
             mAP = sum(AP) / 4
             UAR = sum(Recall) / 4
 
             batch_sum_loss += loss.item()
             Total_avg_loss = batch_sum_loss / iter
 
+        # loss.backward()
+        # optimizer.step()
         scaler.scale(loss).backward()
         scaler.step(optimizer)
         scaler.update()
@@ -187,8 +189,8 @@ def validate_vocalist_per_epoch(model, val_loader):
                 y_true = labels[:, i].to('cpu').numpy()
                 all_preds[i] = np.concatenate((all_preds[i], y_pred))
                 all_labels[i] = np.concatenate((all_labels[i], y_true))
-                Recall[i] = recall_score(all_labels[i], all_preds[i], zero_division=0.)
-                AP[i] = precision_score(all_labels[i], all_preds[i], zero_division=0.)
+                Recall[i] = recall_score(all_labels[i], all_preds[i], zero_division=0., average='macro')
+                AP[i] = precision_score(all_labels[i], all_preds[i], zero_division=0., average='macro')
             mAP = sum(AP) / 4
             UAR = sum(Recall) / 4
             batch_sum_loss += loss.item()

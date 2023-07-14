@@ -10,7 +10,7 @@ from configs.nsconfig import *
 import random
 import matplotlib.pyplot as plt
 import pandas as pd
-
+from train.train_vocalist import validate_vocalist_per_epoch
 from model.vocalist import SyncTransformer
 
 
@@ -103,24 +103,25 @@ def getuar(pred_csv, label_csv):
     print('UAR:', (recall1 + recall2 + recall3 + recall4 )/ 4)
 
 if __name__ == '__main__':
-    getuar('../output/val1.csv', 'D:/Datasets/NextSpeaker/next_speaker_val.csv')
-    assert False
     setup_seed(100)
     # show_logs('../logs/VocaList 15frame pretrain norm(255) backward1 concat4 batch12 1e-4 5 0.9 threhold0.5 alter_logs.csv')
     # assert False
     model = SyncTransformer()
+    name = 'VocaList 15frame pretrain norm(255) backward1 concat4 batch12 1e-4 5 0.9 threhold0.5 alter_epoch29'
+    num_frames = 15
     weights = torch.load(
-        '../weights/VocaList 15frame pretrain norm(255) backward1 concat4 batch12 1e-4 5 0.9 threhold0.5 alter_epoch30.pt')
+        '../weights/{}.pt'.format(name))
     new_weights = {}
     for k, v in weights.items():
         new_k = k.replace('module.', '')
         new_weights[new_k] = v
     model.load_state_dict(new_weights)
-    train_loader, val_loader = get_dataloader(None, 15, False)
-    # test_loader = get_testloader(None, 15, False)
-    # trainloader, valloader = get_dataloader('mean')
-    # summary(model, input_size=[(4, 15*3, 96, 96), (1, 80, 1103)], device='cpu')
-    results, all_ids = evaluate(model, val_loader)
+    _, val_loader = get_dataloader(None, num_frames, False)
+    validate_vocalist_per_epoch(model, val_loader)
+
+    assert False
+    test_loader = get_testloader(None, num_frames, False)
+    results, all_ids = evaluate(model, test_loader)
     dict = {'id': all_ids, 'label_1': results[0], 'label_2': results[1], 'label_3': results[2], 'label_4': results[3]}
     df = pd.DataFrame(dict)
-    df.to_csv('../output/val1.csv', index=False)
+    df.to_csv('../output/{}.csv'.format(name), index=False)
