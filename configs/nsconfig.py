@@ -1,11 +1,18 @@
+import torch
 import torch.nn as nn
+import numpy as np
+
 dataconfig = {
-    'audio_path': 'D:/Datasets/NextSpeaker/train_val/',
-    'video_path': 'D:/Datasets/NextSpeaker/face_deepface15/train_val/',
-    'meta_path': 'D:/Datasets/NextSpeaker/next_speaker_val.csv',
+    'audio_path': 'D:/Datasets/NextSpeaker/test/',
+    'video_path': 'D:/Datasets/NextSpeaker/face_deepface15/test/',
+    'meta_path': 'D:/Datasets/NextSpeaker/next_speaker_test.csv',
     'batch_size': 12,
     'num_workers': 2,
-    'shuffle': True
+    'shuffle': True,
+    'audio_mean': None,
+    'video_mean': np.array([78.9679, 44.1420, 29.7095]),
+    'audio_std': None,
+    'video_std': np.array([74.0668, 47.5246, 35.4166]),
 }
 
 audioconfig = {
@@ -28,26 +35,25 @@ cavmaeconfig = {
 }
 
 vocalistconfig = {
-    'pool': True
+    'pool': False
 }
 
 trainconfig = {
-    'n_epochs': 50,
+    'n_epochs': 30,
     'loss': nn.BCEWithLogitsLoss(),
     'warmup': True,
     'lr': 1e-4,
     'head_lr': 1.0,
     'lr_adapt': False,  # only for cavmae
-    'lr_patience': 10,  # only for cavmae
-    'lrscheduler_start': 2,
+    'lr_patience': 15,  # only for cavmae
+    'lrscheduler_start': 5,
     'lrscheduler_step': 1,
     'lrscheduler_decay': 0.9,
     'exp_dir': 'D:/github/ACMMM2023/logs/',
-    'freeze_base': False,   # only for cavmae
+    'freeze_base': False,  # only for cavmae
     'save_model': True,
-    'savename': 'VocaList 15frame nonorm pool4 batch12 1e-4 0.9 threhold0.4',
+    'savename': 'VocaList 15frame pretrain picnorm=255 melnorm=zscale backward1 concat4 batch12 1e-4 5 0.9 threhold0.5 macro',
     'validate_step': 1,
-    'cls_threshold': 0.4,
-    'audio_norm': False
+    'cls_threshold': 0.5,
 
 }

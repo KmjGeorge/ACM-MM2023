@@ -348,12 +348,15 @@ class NSDataset(Dataset):
             video = video.astype(np.float32)
             video /= 255
         audio = self.audio[idx]  # (1, F, T)
-        # if self.norm:
-        #     for c in range(3):
-        #         video[:, c, :, :, :] -= self.video_mean[c]
-        #         video[:, c, :, :, :] /= self.video_std[c]
-        #     audio[0] -= self.audio_mean[0]
-        #     audio[0] /= self.audio_std[0]
+        if self.norm:
+            mean = audio.mean()
+            std = audio.std()
+            audio = (audio - mean) / std
+            # for c in range(3):
+            #     video[:, c, :, :, :] -= self.video_mean[c]
+            #     video[:, c, :, :, :] /= self.video_std[c]
+            # audio[0] -= self.audio_mean[0]
+            # audio[0] /= self.audio_std[0]
         return audio, video, self.label[idx], self.id[idx].decode()
 
 
@@ -405,8 +408,8 @@ def get_dataloader(reassemble_method=None, num_frame=15, norm=True):
     #                                   method=reassemble_method)
     #     val = NSDataset_reassemble4('../dataset/val_mel80.h5', '../dataset/val_face_frames{}.h5'.format(num_frame))
     # else:
-    train = NSDataset('../dataset/train_mel80.h5', '../dataset/train_face_frames{}.h5'.format(num_frame), norm=True)
-    val = NSDataset('../dataset/val_mel80.h5', '../dataset/val_face_frames{}.h5'.format(num_frame), norm=True)
+    train = NSDataset('../dataset/train_mel80.h5', '../dataset/train_face_frames{}.h5'.format(num_frame), norm=norm)
+    val = NSDataset('../dataset/val_mel80.h5', '../dataset/val_face_frames{}.h5'.format(num_frame), norm=norm)
     train_dataloader = DataLoader(dataset=train, batch_size=dataconfig['batch_size'], shuffle=dataconfig['shuffle'],
                                   num_workers=dataconfig['num_workers'])
 

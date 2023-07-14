@@ -107,7 +107,7 @@ if __name__ == '__main__':
     # show_logs('../logs/VocaList 15frame pretrain norm(255) backward1 concat4 batch12 1e-4 5 0.9 threhold0.5 alter_logs.csv')
     # assert False
     model = SyncTransformer()
-    name = 'VocaList 15frame pretrain norm(255) backward1 concat4 batch12 1e-4 5 0.9 threhold0.5 alter_epoch29'
+    name = 'VocaList 15frame pretrain picnorm=255 melnorm=zscale backward1 concat4 batch12 1e-4 5 0.9 threhold0.5 macro_epoch29'
     num_frames = 15
     weights = torch.load(
         '../weights/{}.pt'.format(name))
@@ -116,11 +116,10 @@ if __name__ == '__main__':
         new_k = k.replace('module.', '')
         new_weights[new_k] = v
     model.load_state_dict(new_weights)
-    _, val_loader = get_dataloader(None, num_frames, False)
+    _, val_loader = get_dataloader(None, num_frames, True)
     validate_vocalist_per_epoch(model, val_loader)
 
-    assert False
-    test_loader = get_testloader(None, num_frames, False)
+    test_loader = get_testloader(None, num_frames, True)
     results, all_ids = evaluate(model, test_loader)
     dict = {'id': all_ids, 'label_1': results[0], 'label_2': results[1], 'label_3': results[2], 'label_4': results[3]}
     df = pd.DataFrame(dict)
